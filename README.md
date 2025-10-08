@@ -129,14 +129,15 @@ The system operates in three distinct operational modes:
 - **Indicators**: Green LED ON + Buzzer ACTIVE
 - **Action**: Stop filling to prevent overflow
 
-## 🚀 Installation
+## 🚀 Installation & Build System
 
 ### Prerequisites
-- PlatformIO IDE or Arduino IDE
-- Make utility (for build automation)
-- USB cable for Arduino programming
+- **PlatformIO Core** (automatically manages toolchain)
+- **Make utility** (for streamlined build automation)
+- **USB cable** for Arduino programming
+- **Git** (for repository cloning)
 
-### Build and Upload
+### Quick Start
 
 ```bash
 # Clone the repository
@@ -144,22 +145,83 @@ git clone https://github.com/WangodaFrancis667/HCR04-ATMEGA328P-WATERSENSOR-BARE
 
 cd HCR04-ATMEGA328P-WATERSENSOR-BAREMETAL-CODE
 
-# Build the project
-make
-
-# Upload to Arduino
+# Quick build and upload
 make upload
-
-# Clean build files
-make clean
 ```
 
-### Manual Compilation
-If using Arduino IDE:
+## 🔧 Makefile Command Reference
+
+Our advanced Makefile provides comprehensive build automation for the Timer1-based HC-SR04 implementation:
+
+### **Essential Commands**
+```bash
+make build      # Build the project (default target)
+make upload     # Build and upload to Arduino Uno
+make clean      # Clean build artifacts
+make size       # Analyze memory usage
+make status     # Show project status overview
+```
+
+### **Development & Debugging**
+```bash
+make monitor    # Start serial monitor for debugging
+make rebuild    # Clean and rebuild from scratch  
+make flash      # Upload pre-built firmware
+make devices    # List available Arduino devices
+```
+
+### **Advanced Analysis**
+```bash
+make asm        # Generate assembly code for analysis
+make config     # Show project configuration
+make info       # Detailed build information
+make check      # Perform code analysis
+make help       # Complete command reference
+```
+
+### **Example Workflow**
+```bash
+# Initial setup and build
+make config     # Verify project settings
+make build      # Compile the Timer1 implementation
+
+# Development cycle
+make upload     # Deploy to hardware
+make monitor    # Watch serial output
+make size       # Check memory efficiency
+
+# Project status
+make status     # Overview with memory usage
+```
+
+### **Expected Build Output**
+```
+Building HC-SR04 Water Level Sensor (Timer1 Implementation)...
+Target: ATmega328P | Platform: atmelavr | Framework: arduino
+
+Memory Efficiency:
+  RAM:   0.4% (9/2048 bytes) - Excellent!
+  Flash: 2.5% (808/32384 bytes) - Very efficient!
+Features: Timer1 Input Capture, Interrupt-driven HC-SR04
+```
+
+### Alternative: Manual PlatformIO
+If you prefer direct PlatformIO commands:
+```bash
+pio run              # Build project
+pio run -t upload    # Upload to device  
+pio run -t size      # Memory analysis
+pio device monitor   # Serial monitor
+```
+
+### Legacy Arduino IDE Support
+For Arduino IDE users:
 1. Open `src/main.cpp`
 2. Select **Arduino Uno** as target board
 3. Choose appropriate COM port
 4. Click **Upload**
+
+> **Note**: The Makefile approach is recommended for optimal development experience with this advanced Timer1 implementation.
 
 ## 📊 Usage
 
@@ -177,6 +239,65 @@ If using Arduino IDE:
 
 ### ATmega328P Pinout Reference
 ![Pinout Diagram](img/Screenshot.png)
+
+##  Build System Showcase
+
+### **Project Status Dashboard**
+The Makefile provides comprehensive project insights at a glance:
+
+```bash
+$ make status
+=== HC-SR04 Water Level Sensor Project Status ===
+Project: Water-Level-Sensor
+Target MCU: ATmega328P @ 16000000UL Hz
+Last build: Oct  8 23:27:11 2025
+Source files:
+  src/main.cpp
+Build status: ✓ Built successfully
+Memory efficiency:
+  RAM:   0.4% (9/2048 bytes) - Excellent!
+  Flash: 2.5% (808/32384 bytes) - Very efficient!
+Features: Timer1 Input Capture, Interrupt-driven HC-SR04
+================================================
+```
+
+### **Memory Usage Analysis**
+Detailed memory breakdown showing exceptional efficiency:
+
+```bash
+$ make size
+AVR Memory Usage
+----------------
+Device: atmega328p
+
+Program:     808 bytes (2.5% Full)
+(.text + .data + .bootloader)
+
+Data:          9 bytes (0.4% Full)
+(.data + .bss + .noinit)
+```
+
+### **Complete Command Reference**
+```bash
+$ make help
+HC-SR04 ATmega328P Water Level Sensor Makefile
+==============================================
+
+Available targets:
+  build      - Build the project (default)
+  upload     - Build and upload to Arduino
+  status     - Show project status and build info
+  size       - Show memory usage
+  monitor    - Start serial monitor
+  clean      - Clean build files
+  help       - Show this help message
+
+Project Features:
+  - Timer1 Input Capture for precision HC-SR04 timing
+  - Interrupt-driven ultrasonic measurement
+  - Bare metal ATmega328P programming
+  - Multi-state LED and buzzer feedback system
+```
 
 ## 🔧 Advanced Timer1 Implementation
 
@@ -270,6 +391,48 @@ ISR(TIMER1_CAPT_vect) {
 - Select correct COM port
 - Ensure Arduino drivers installed
 - Check USB cable functionality
+
+### Build & Development Issues
+
+**Makefile commands not working**
+```bash
+# Verify PlatformIO installation
+make config
+
+# Check project status
+make status
+
+# Rebuild from scratch
+make rebuild
+```
+
+**Memory usage concerns**
+```bash
+# Analyze current usage
+make size
+
+# Expected efficient usage:
+# RAM:   0.4% (9/2048 bytes)
+# Flash: 2.5% (808/32384 bytes)
+```
+
+**Development workflow**
+```bash
+# Quick development cycle
+make build      # Compile code
+make upload     # Deploy to hardware  
+make monitor    # Watch serial output
+```
+
+### Quick Command Reference Card
+| Command | Purpose | When to Use |
+|---------|---------|-------------|
+| `make build` | Compile project | After code changes |
+| `make upload` | Build + Deploy | Ready to test on hardware |
+| `make status` | Project overview | Check build state |
+| `make size` | Memory analysis | Optimize code size |
+| `make monitor` | Serial debugging | Debug runtime issues |
+| `make clean` | Reset build | Fix build conflicts |
 
 ## 🤝 Contributing
 
