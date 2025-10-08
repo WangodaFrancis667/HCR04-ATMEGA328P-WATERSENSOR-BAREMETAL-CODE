@@ -44,7 +44,7 @@ This project implements a comprehensive liquid level monitoring system using dua
 
 The monitoring system utilizes a sophisticated dual-sensor approach:
 
-1. **Primary Sensor (petrol Level Sensor)**: Direct liquid contact detection for critical low levels
+1. **Primary Sensor (Water Level Sensor)**: Direct liquid contact detection for critical low levels
 2. **Secondary Sensor (HC-SR04 Ultrasonic)**: Non-contact distance measurement for overflow prevention
 3. **Intelligent Control Logic**: ATmega328P processes sensor data and controls output devices
 4. **Multi-Modal Feedback**: Combined LED visual indicators and buzzer audio alerts
@@ -59,7 +59,7 @@ The monitoring system utilizes a sophisticated dual-sensor approach:
 |-----------|---------------|---------|
 | **Microcontroller** | Arduino Uno (ATmega328P) | Main processing unit |
 | **Ultrasonic Sensor** | HC-SR04 | Distance measurement |
-| **petrol Level Sensor** | Analog petrol sensor | Direct liquid detection |
+| **petrol Level Sensor** | Analog water sensor | Direct liquid detection |
 | **Visual Indicators** | 3x LEDs (Red, Yellow, Green) | Status display |
 | **Audio Indicator** | Active buzzer | Alert system |
 
@@ -149,7 +149,7 @@ If using Arduino IDE:
 
 1. **Power On**: Connect Arduino to 5V power source
 2. **Sensor Placement**: Position sensors in liquid container
-   - petrol level sensor: Submerge in liquid
+   - water level sensor: Submerge in liquid
    - HC-SR04: Mount above maximum liquid level
 3. **Monitor Status**: Observe LED indicators for system state
 4. **Respond to Alerts**: Take appropriate action based on buzzer and LED signals
