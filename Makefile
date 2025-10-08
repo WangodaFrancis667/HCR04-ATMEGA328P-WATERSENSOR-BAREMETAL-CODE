@@ -54,7 +54,7 @@ size: $(TARGET).elf
 
 # Clean build files
 clean:
-	rm -f *.o *.elf *.hex
+	rm -rf .pio/build/ATmega328P/*.hex
 
 # Verify connection
 test:
