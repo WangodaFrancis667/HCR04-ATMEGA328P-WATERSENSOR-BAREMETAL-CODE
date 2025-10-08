@@ -13,7 +13,7 @@ Thumbs.db
 *~
 *.swp
 *.swo
-*.bak
+# *.bak
 *.backup
 *.orig
 *.rej
