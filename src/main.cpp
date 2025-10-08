@@ -3,9 +3,7 @@
 #include<util/delay.h>
 
 
-// Defining the ports and system conatants
-// #define F_CPU 16000000UL           // 16MHz clock frequency
-
+// Defining constants
 // Water level sensor
 #define WATER_SENSOR_POWER_PIN 6   // PD6
 
@@ -25,6 +23,13 @@
 
 // function declarations
 void initialise_ADC();
+uint16_t read_water_sensor();
+void send_trigger_pulse();
+uint32_t measure_echo_pulse();
+uint32_t read_HCSR04_distance();
+void control_LEDS(uint8_t red, uint8_t yellow, uint8_t green);
+void control_buzzer(uint8_t state);
+void delay_ms(uint16_t ms);
 
 int main(){
     // System initialisation
@@ -118,7 +123,6 @@ void send_trigger_pulse(){
 // Measure echo pulse duration in micro seconds
 uint32_t measure_echo_pulse(){
     uint32_t timeout = 30000;  // 30ms timeout
-    uint32_t pulse_start = 0;
     uint32_t pulse_duration = 0;
 
     // Wait for echo pin to go HIGH (with timeout)
@@ -184,9 +188,9 @@ void control_buzzer(uint8_t state){
 }
 
 // Millisecond delay using busy wait loop
-void delay_ms(uint16_t us){
-    while(us--){
-        _delay_us(1);
+void delay_ms(uint16_t ms){
+    while(ms--){
+        _delay_ms(1);
     }
 }
 
