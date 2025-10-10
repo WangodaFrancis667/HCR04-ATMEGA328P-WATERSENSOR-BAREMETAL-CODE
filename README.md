@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Platform: Arduino](https://img.shields.io/badge/Platform-Arduino-blue.svg)](https://www.arduino.cc/)
 [![MCU: ATmega328P](https://img.shields.io/badge/MCU-ATmega328P-green.svg)](https://www.microchip.com/wwwproducts/en/ATmega328P)
-[![MCU: ATmega328P]()](https://www.instructables.com/Introduction-to-ADC-in-AVR-Microcontroller-for-Beg/)
+[![MCU: ATmega328P](https://img.shields.io/badge/ADC)](https://www.instructables.com/Introduction-to-ADC-in-AVR-Microcontroller-for-Beg/)
 
 > A professional-grade petrol level monitoring system implemented with bare metal programming on Arduino Uno (ATmega328P) microcontroller.
 
