@@ -13,14 +13,16 @@
 #define ECHO_PIN 0                 // PB0 (Digital Pin 8, ICP1) - Echo input for Timer1 Input Capture
 
 // Visual and audio feedback port mapping
-#define RED_LED_PIN 2              // PD2 (Digital Pin 2) - Critical low water level indicator
-#define YELLOW_LED_PIN 3           // PD3 (Digital Pin 3) - Normal operation indicator  
-#define GREEN_LED_PIN 4            // PD4 (Digital Pin 4) - High water level warning
+#define RED_LED_PIN 2              // PD2 (Digital Pin 2) - Water contamination indicator
+#define YELLOW_LED_PIN 3           // PD3 (Digital Pin 3) - Halfway level indicator (15cm)
+#define GREEN_LED_PIN 4            // PD4 (Digital Pin 4) - Near overflow warning (13cm)
 #define BUZZER_PIN 5               // PD5 (Digital Pin 5) - Audio alert system
 
-// Water level thresholds for system state determination
-#define CRITICAL_LOW_THRESHOLD 100    // ADC value for critically low water (0-1023 range)
-#define HIGH_LEVEL_THRESHOLD 15       // Distance in cm from HC-SR04 for overflow warning
+// Petrol tank level thresholds for system state determination
+#define WATER_CONTAMINATION_THRESHOLD 100    // ADC value detecting water in petrol (0-1023 range)
+#define TANK_HEIGHT_CM 15                    // Total tank height in centimeters
+#define HALFWAY_LEVEL_THRESHOLD 7            // Distance in cm from HC-SR04 for halfway tank level (7.5cm, rounded down)
+#define OVERFLOW_WARNING_THRESHOLD 13        // Distance in cm from HC-SR04 for near overflow warning (13cm)
 
 // Global variables for Timer1 Input Capture interrupt-based HC-SR04 measurement
 volatile uint32_t echo_start_time = 0;           // Timer1 count value when echo pulse starts (rising edge)
@@ -76,25 +78,27 @@ int main(){
         // Read distance from HC-SR04 ultrasonic sensor (in cm)
         uint32_t distance = read_HCSR04_distance();
 
-        // ========== WATER LEVEL MANAGEMENT DECISION LOGIC ==========
-        if (water_level < CRITICAL_LOW_THRESHOLD) {
-            // CRITICAL STATE: Water level critically low - immediate attention required
-            control_LEDS(1, 0, 0);  // Red LED ON (danger indicator)
-            control_buzzer(1);      // Buzzer ON (audio alert)
-        
-        } else if(distance < HIGH_LEVEL_THRESHOLD && distance > 0){
-            // HIGH LEVEL WARNING: Water approaching overflow level
-            control_LEDS(0, 0, 1);  // Green LED ON (high level warning)
+        // ========== PETROL TANK MONITORING DECISION LOGIC ==========
+        if (water_level < WATER_CONTAMINATION_THRESHOLD) {
+            // WATER CONTAMINATION DETECTED: Water present in petrol tank - critical issue
+            control_LEDS(1, 0, 0);  // Red LED ON (water contamination alert)
+            control_buzzer(1);      // Buzzer ON (critical audio alert)
+        } else if (distance <= OVERFLOW_WARNING_THRESHOLD && distance > 0) {
+            // NEAR OVERFLOW: Petrol tank almost full - stop filling immediately
+            control_LEDS(0, 0, 1);  // Green LED ON (near overflow warning at 13cm)
             control_buzzer(1);      // Buzzer ON (prevent overflow)
-
+        } else if (distance <= HALFWAY_LEVEL_THRESHOLD && distance > OVERFLOW_WARNING_THRESHOLD) {
+            // HALFWAY LEVEL: Petrol tank at halfway point (7.5cm) - continue filling with caution
+            control_LEDS(0, 1, 0);  // Yellow LED ON (halfway status at 7.5cm)
+            control_buzzer(0);      // Buzzer OFF (normal filling)
         } else {
-            // NORMAL OPERATION: Water level within acceptable range
+            // NORMAL OPERATION: Tank has adequate space - safe to fill
             control_LEDS(0, 1, 0);  // Yellow LED ON (normal status)
             control_buzzer(0);      // Buzzer OFF (no alert needed)
         }
 
-        // System update interval - 100ms between sensor readings
-        delay_ms(100);
+        // System update interval - 50ms between sensor readings for faster response
+        delay_ms(50);
     }
     return 0;
 }
@@ -204,8 +208,9 @@ uint32_t read_HCSR04_distance(){
     // Initiate HC-SR04 measurement cycle
     send_trigger_pulse();            // Send 10μs trigger pulse to HC-SR04
     
-    // Wait for interrupt-based measurement completion with timeout protection
-    uint32_t timeout_count = 50000;  // 50ms timeout (covers ~8.5m max range + safety margin)
+    // Wait for interrupt-based measurement completion with optimized timeout
+    // Reduced timeout for faster response - 30cm max range = ~1.8ms round trip
+    uint32_t timeout_count = 5000;   // 5ms timeout (covers ~85cm max range, optimized for faster response)
     while(!echo_measurement_complete && timeout_count > 0) {
         _delay_us(1);                // 1μs delay per iteration
         timeout_count--;             // Decrement timeout counter
@@ -225,8 +230,8 @@ uint32_t read_HCSR04_distance(){
          * - For integer math: distance = (time_μs × 17) / 1000
          */
         
-        // Validate pulse duration range (HC-SR04: 150μs-25000μs for 2.5cm-4.3m)
-        if (pulse_us > 150 && pulse_us < 30000) {    // Valid range with safety margins
+        // Validate pulse duration range (optimized for tank monitoring: 150μs-5000μs for 2.5cm-85cm)
+        if (pulse_us > 150 && pulse_us < 5000) {     // Valid range optimized for petrol tank
             return (pulse_us * 17) / 1000;           // Calculate distance in centimeters
         }
     }
@@ -237,19 +242,19 @@ uint32_t read_HCSR04_distance(){
 
 
 // ========== LED CONTROL SYSTEM ==========
-// Control visual status indicators based on water level conditions
+// Control visual status indicators based on petrol tank level and water contamination
 void control_LEDS(uint8_t red, uint8_t yellow, uint8_t green){
     // Turn OFF all LEDs first to ensure clean state transitions
     PORTD &= ~((1 << RED_LED_PIN) | (1 << YELLOW_LED_PIN) | (1 << GREEN_LED_PIN));
     
     // Activate requested LED indicators
-    if(red)    PORTD |= (1 << RED_LED_PIN);     // Critical low water level
-    if(yellow) PORTD |= (1 << YELLOW_LED_PIN);  // Normal operation status  
-    if(green)  PORTD |= (1 << GREEN_LED_PIN);   // High water level warning
+    if(red)    PORTD |= (1 << RED_LED_PIN);     // Water contamination detected
+    if(yellow) PORTD |= (1 << YELLOW_LED_PIN);  // Halfway level or normal operation
+    if(green)  PORTD |= (1 << GREEN_LED_PIN);   // Near overflow warning (13cm)
 }
 
 // ========== BUZZER CONTROL SYSTEM ==========
-// Control audio alert system for critical water level conditions
+// Control audio alert system for water contamination and overflow warnings
 void control_buzzer(uint8_t state){
     if (state) {
         PORTD |= (1 << BUZZER_PIN);     // Turn ON buzzer for audio alert
