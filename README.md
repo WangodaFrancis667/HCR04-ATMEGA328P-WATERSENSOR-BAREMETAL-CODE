@@ -1,11 +1,11 @@
-# Arduino petrol Level Monitoring System
+# Arduino Petrol Tank Level Monitoring System with Water Contamination Detection
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Platform: Arduino](https://img.shields.io/badge/Platform-Arduino-blue.svg)](https://www.arduino.cc/)
 [![MCU: ATmega328P](https://img.shields.io/badge/MCU-ATmega328P-green.svg)](https://www.microchip.com/wwwproducts/en/ATmega328P)
-[![MCU: ATmega328P](https://img.shields.io/badge/ADC)](https://www.instructables.com/Introduction-to-ADC-in-AVR-Microcontroller-for-Beg/)
+[![ADC: 10-bit](https://img.shields.io/badge/ADC-10--bit-orange.svg)](https://www.microchip.com/en-us/products/microcontrollers-and-microprocessors/8-bit-mcus/avr-mcus/atmega328p)
 
-> A professional-grade petrol level monitoring system implemented with bare metal programming on Arduino Uno (ATmega328P) microcontroller.
+> A professional grade petrol tank level monitoring system with water contamination detection, implemented with bare metal programming on Arduino Uno (ATmega328P) microcontroller.
 
 ## 📋 Table of Contents
 
@@ -25,29 +25,31 @@
 
 ## 🎯 Overview
 
-This project implements a comprehensive liquid level monitoring system using dual-sensor technology for enhanced accuracy and safety. The system employs **100% bare metal programming** without Arduino libraries, providing direct register manipulation for optimal performance and educational value.
+This project implements a comprehensive petrol tank level monitoring system with water contamination detection using dual-sensor technology for enhanced accuracy and safety. The system employs **100% bare metal programming** without Arduino libraries, providing direct register manipulation for optimal performance and educational value.
 
 ### Key Applications
-- **Industrial Tank Monitoring**: Prevent overflow and ensure adequate liquid levels
+- **Petrol Tank Monitoring**: Prevent overflow and detect water contamination in fuel tanks
+- **Industrial Fuel Storage**: Monitor fuel levels with water detection capability
 - **Educational Platform**: Learn embedded systems programming and sensor integration
-- **Prototype Development**: Base system for advanced liquid monitoring solutions
+- **Prototype Development**: Base system for advanced fuel monitoring solutions
 
 ## ✨ Features
 
 - **🔧 Bare Metal Programming**: Direct ATmega328P register manipulation for maximum efficiency
 - **⚡ Hardware Timer Integration**: Timer1 Input Capture for microsecond-precision timing
-- **🔄 Dual Sensor System**: Combined ultrasonic and liquid level sensors for redundant monitoring
+- **🔄 Dual Sensor System**: Ultrasonic level sensor + water contamination detector for comprehensive monitoring
 - **🚨 Multi-State Alert System**: Visual and audio indicators for different operational states
-- **⚡ Real-time Monitoring**: Continuous liquid level assessment with immediate feedback
+- **⚡ Real-time Monitoring**: Fast response time (50ms update cycle) with immediate feedback
 - **🛠️ Modular Design**: Easy to extend and customize for specific applications
 - **📚 Educational Value**: Excellent learning resource for embedded systems development
+- **💧 Water Detection**: Critical safety feature detecting water contamination in petrol
 
 ## 🏗️ System Architecture
 
 The monitoring system utilizes a dual-sensor approach with advanced hardware timer integration:
 
-1. **Primary Sensor (Water Level Sensor)**: Direct liquid contact detection via ADC for critical low levels
-2. **Secondary Sensor (HC-SR04 Ultrasonic)**: Hardware-timed distance measurement using Timer1 Input Capture
+1. **Water Contamination Sensor**: Direct liquid contact detection via ADC for water presence in petrol
+2. **HC-SR04 Ultrasonic Sensor**: Hardware-timed distance measurement using Timer1 Input Capture for fuel level
 3. **Timer1 Precision Engine**: Dedicated 16-bit hardware timer for microsecond-accurate pulse measurement
 4. **Intelligent Control Logic**: ATmega328P processes sensor data with interrupt-driven efficiency
 5. **Multi-Modal Feedback**: Combined LED visual indicators and buzzer audio alerts
@@ -59,6 +61,8 @@ Trigger Pulse (10μs) → HC-SR04 → Echo Signal → Timer1 ICP1 → ISR Proces
 Main Loop ← Distance Calculation ← Hardware Timer ← Interrupt Capture
      ↓
 Decision Logic → LED/Buzzer Control → User Feedback
+     ↓
+Water Sensor (ADC) → Contamination Detection → Red LED Alert
 ```
 
 ### System Logic Flow
@@ -70,8 +74,8 @@ Decision Logic → LED/Buzzer Control → User Feedback
 | Component | Specification | Purpose |
 |-----------|---------------|---------|
 | **Microcontroller** | Arduino Uno (ATmega328P) | Main processing unit |
-| **Ultrasonic Sensor** | HC-SR04 | Distance measurement |
-| **petrol Level Sensor** | Analog water sensor | Direct liquid detection |
+| **Ultrasonic Sensor** | HC-SR04 | Fuel level distance measurement |
+| **Water Contamination Sensor** | Analog water sensor | Water detection in petrol |
 | **Visual Indicators** | 3x LEDs (Red, Yellow, Green) | Status display |
 | **Audio Indicator** | Active buzzer | Alert system |
 
@@ -100,10 +104,10 @@ Water Level Sensor:
 ### Output Device Connections
 ```
 Status Indicators:
-├── Red LED    → Pin 2 (PD2) - Critical low level
-├── Yellow LED → Pin 3 (PD3) - Normal operation
-├── Green LED  → Pin 4 (PD4) - High level warning
-└── Buzzer     → Pin 5 (PD5) - Audio alerts
+├── Red LED    → Pin 2 (PD2) - Water contamination detected
+├── Yellow LED → Pin 3 (PD3) - Halfway fuel level (7.5cm) / Normal operation
+├── Green LED  → Pin 4 (PD4) - Near overflow warning (13cm)
+└── Buzzer     → Pin 5 (PD5) - Audio alerts (water detected or near overflow)
 ```
 
 ### Critical Pin Assignment Notes
@@ -113,22 +117,36 @@ Status Indicators:
 
 ## 🔄 System States
 
-The system operates in three distinct operational modes:
+The system operates in four distinct operational modes based on sensor readings, with tank height set to **15cm**, halfway at **7.5cm**, and overflow warning at **13cm**:
 
-### 🔴 Critical Low Level
-- **Trigger**: petrol sensor ADC reading < 100
+
+### 🔴 Water Contamination Detected (CRITICAL)
+- **Trigger**: Water sensor ADC reading < 100 (water detected in petrol)
 - **Indicators**: Red LED ON + Buzzer ACTIVE
-- **Action**: Immediate refill required
+- **Action**: Immediate attention required - water contamination in fuel tank
 
-### 🟡 Normal Operation
-- **Trigger**: Adequate petrol level detected
-- **Indicators**: Yellow LED ON
-- **Action**: System monitoring normally
-
-### 🟢 High Level / Overflow Warning
-- **Trigger**: HC-SR04 distance < 15cm from sensor
+### � Near Overflow Warning (13cm)
+- **Trigger**: HC-SR04 distance ≤ 13cm from sensor (liquid level is high, tank almost full)
 - **Indicators**: Green LED ON + Buzzer ACTIVE
-- **Action**: Stop filling to prevent overflow
+- **Action**: Stop filling immediately to prevent overflow
+
+### 🟡 Halfway Level (7.5cm)
+- **Trigger**: HC-SR04 distance ≤ 7.5cm (rounded down to 7cm in code) and > 13cm, and no water contamination
+- **Indicators**: Yellow LED ON
+- **Action**: Tank is at halfway point, continue filling with caution
+
+### � Normal Operation
+- **Trigger**: Tank has adequate space (distance > 7.5cm) and no water contamination
+- **Indicators**: Yellow LED ON
+- **Action**: Safe to continue filling
+
+### System Logic Summary
+```
+Priority 1: Water Contamination (Red LED + Buzzer)
+Priority 2: Near Overflow at 13cm (Green LED + Buzzer)
+Priority 3: Halfway Level at 7.5cm (Yellow LED)
+Priority 4: Normal Operation (Yellow LED)
+```
 
 ## 🚀 Installation & Build System
 
@@ -227,11 +245,15 @@ For Arduino IDE users:
 ## 📊 Usage
 
 1. **Power On**: Connect Arduino to 5V power source
-2. **Sensor Placement**: Position sensors in liquid container
-   - water level sensor: Submerge in liquid
-   - HC-SR04: Mount above maximum liquid level
+2. **Sensor Placement**: Position sensors in petrol tank
+   - Water sensor: Submerge at bottom of tank to detect water contamination
+   - HC-SR04: Mount above maximum fuel level (sensor measures downward distance)
 3. **Monitor Status**: Observe LED indicators for system state
+   - **Red LED**: Water contamination detected - critical issue
+  - **Yellow LED**: Normal operation or halfway level (7.5cm)
+  - **Green LED**: Near overflow warning (13cm) - stop filling
 4. **Respond to Alerts**: Take appropriate action based on buzzer and LED signals
+5. **Fast Response**: System updates every 50ms for quick detection and alerts
 
 ## 📐 Circuit Diagrams
 
@@ -342,12 +364,14 @@ ISR(TIMER1_CAPT_vect) {
 |-----------|--------|-------|
 | **Operating Voltage** | 5V DC | Arduino Uno standard |
 | **Current Consumption** | < 200mA | Including all peripherals |
-| **Sensor Range (HC-SR04)** | 2cm - 430cm | Enhanced with Timer1 precision |
+| **Sensor Range (HC-SR04)** | 2cm - 85cm | Optimized for petrol tank monitoring |
 | **Timing Resolution** | **0.5μs** | Timer1 Input Capture precision |
-| **ADC Resolution** | 10-bit (0-1023) | Water sensor reading |
-| **Response Time** | < 50ms | Improved with interrupt-driven design |
+| **ADC Resolution** | 10-bit (0-1023) | Water contamination sensor |
+| **Response Time** | **50ms** | Improved with faster update cycle |
 | **Operating Temperature** | -10°C to +85°C | Environmental limits |
 | **Timer Prescaler** | 8x (2MHz) | Optimal balance of range/resolution |
+| **Measurement Timeout** | 5ms | Optimized for faster response |
+| **Distance Thresholds** | 15cm (halfway), 13cm (overflow) | Configurable for different tank sizes |
 
 #### Timer1 Integration Benefits
 ```c
