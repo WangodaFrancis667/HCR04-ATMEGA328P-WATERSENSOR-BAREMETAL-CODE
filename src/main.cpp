@@ -245,7 +245,7 @@ int main(){
             // Action: RED LED ON + BUZZER OFF (visual alert only)
             
             control_LEDS(0, 1, 1);  // RED=ON (0), YELLOW=OFF (1), GREEN=OFF (1)
-            control_buzzer(0);       // BUZZER=OFF (disable audio in this implementation)
+            control_buzzer(0);       // BUZZER=ON
             
         } else if (distance > 0 && distance <= HALFWAY_LEVEL_THRESHOLD) {
             // ============================================================
@@ -256,7 +256,7 @@ int main(){
             // Action: GREEN LED ON + BUZZER OFF
             
             control_LEDS(1, 1, 0);  // RED=OFF, YELLOW=OFF, GREEN=ON (0)
-            control_buzzer(0);       // BUZZER=OFF
+            control_buzzer(0);       // BUZZER=ON
             
         } else if (distance > HALFWAY_LEVEL_THRESHOLD && distance <= OVERFLOW_WARNING_THRESHOLD) {
             // ============================================================
@@ -267,7 +267,7 @@ int main(){
             // Action: YELLOW LED ON only (no buzzer)
             
             control_LEDS(1, 0, 1);  // RED=OFF, YELLOW=ON (0), GREEN=OFF
-            // Buzzer control commented out - remains in previous state
+            // control_buzzer(0);       // BUZZER=ON
             
         } else {
             // ============================================================
@@ -278,7 +278,7 @@ int main(){
             // Action: ALL LEDS OFF + BUZZER ON (error condition alert)
             
             control_LEDS(1, 1, 1);  // All LEDs OFF (1,1,1)
-            control_buzzer(1);       // BUZZER=ON (alert for no reading)
+            control_buzzer(1);       // BUZZER=OF (alert for no reading)
         }
 
         // ================================================================
