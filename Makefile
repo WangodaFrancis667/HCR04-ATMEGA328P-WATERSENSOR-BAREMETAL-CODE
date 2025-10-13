@@ -4,7 +4,7 @@
 
 # Project configuration
 PROJECT_NAME = Water-Level-Sensor
-MCU = ATmega328P
+MCU =  ATmega2560
 F_CPU = 16000000UL
 PLATFORM = atmelavr
 FRAMEWORK = arduino
