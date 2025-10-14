@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Platform: Arduino](https://img.shields.io/badge/Platform-Arduino-blue.svg)](https://www.arduino.cc/)
-[![MCU: ATmega2560](https://img.shields.io/badge/MCU-ATmega2560-green.svg)](https://www.microchip.com/wwwproducts/en/ATmega2560)
+[![MCU: ATmega2560](https://img.shields.io/badge/MCU-ATmega2560-green.svg)](https://www.utmel.com/components/atmega2560-16au-microcontroller-features-pinout-and-datasheet?id=1401)
 [![ADC: 10-bit](https://img.shields.io/badge/ADC-10--bit-orange.svg)](https://bennthomsen.wordpress.com/arduino/peripherals/analogue-input/)
 
 > A professional grade petrol tank level monitoring system with water contamination detection, implemented with bare metal programming on Arduino Mega 2560 (ATmega2560) microcontroller.
