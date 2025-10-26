@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
-import 'bluetooth_connection_screen.dart';
+import 'bluetooth_connection_screen.dart'; // Make sure this import is correct
 
 class SensorDataScreen extends StatefulWidget {
   final BluetoothConnection connection;
@@ -23,9 +23,7 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
   //                        THEME COLORS
   // ============================================================================
   static const Color _primaryBlue = Color(0xFF0D47A1); // A deep, classic blue
-  static const Color _lightBlueBackground = Color(
-    0xFFE3F2FD,
-  ); // Very light blue
+  static const Color _lightBlueBackground = Color(0xFFE3F2FD); // Very light blue
   static const Color _cardBackground = Colors.white;
   static const Color _primaryText = Color(0xFF212121);
   static const Color _secondaryText = Color(0xFF757575);
@@ -171,31 +169,32 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
   // ============================================================================
 
   void _startConnectionMonitoring() {
-    connectionMonitor = Timer.periodic(const Duration(seconds: 3), (timer) {
-      if (!isConnected) {
-        timer.cancel();
-        return;
-      }
+    connectionMonitor = Timer.periodic(
+      const Duration(seconds: 3),
+      (timer) {
+        if (!isConnected) {
+          timer.cancel();
+          return;
+        }
 
-      // Check if we've received data recently (within 5 seconds)
-      if (lastDataReceived != null) {
-        final timeSinceLastData = DateTime.now()
-            .difference(lastDataReceived!)
-            .inSeconds;
+        // Check if we've received data recently (within 5 seconds)
+        if (lastDataReceived != null) {
+          final timeSinceLastData =
+              DateTime.now().difference(lastDataReceived!).inSeconds;
 
-        if (timeSinceLastData > 5) {
-          debugPrint(
-            'Warning: No data received for $timeSinceLastData seconds',
-          );
+          if (timeSinceLastData > 5) {
+            debugPrint(
+                'Warning: No data received for $timeSinceLastData seconds');
 
-          if (timeSinceLastData > 10) {
-            debugPrint('Connection appears dead, disconnecting...');
-            _handleDisconnection();
-            _showSnackBar('Connection lost - no data received', Colors.red);
+            if (timeSinceLastData > 10) {
+              debugPrint('Connection appears dead, disconnecting...');
+              _handleDisconnection();
+              _showSnackBar('Connection lost - no data received', Colors.red);
+            }
           }
         }
-      }
-    });
+      },
+    );
   }
 
   void _handleDisconnection() {
@@ -406,7 +405,10 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
                   const SizedBox(height: 2),
                   Text(
                     _getTimestampDisplay(),
-                    style: const TextStyle(fontSize: 12, color: _secondaryText),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: _secondaryText,
+                    ),
                   ),
                 ],
               ),
@@ -430,7 +432,11 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
         padding: const EdgeInsets.symmetric(vertical: 24.0, horizontal: 16.0),
         child: Column(
           children: [
-            Icon(_getStatusIcon(), size: 72, color: statusColor),
+            Icon(
+              _getStatusIcon(),
+              size: 72,
+              color: statusColor,
+            ),
             const SizedBox(height: 12),
             Text(
               _getStatusText(),
@@ -484,9 +490,8 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
   Widget _buildSensorGrid() {
     // Determine colors for the water quality tile
     final bool isContaminated = waterQuality > 100;
-    final Color qualityColor = isContaminated
-        ? Colors.red[700]!
-        : Colors.green[700]!;
+    final Color qualityColor =
+        isContaminated ? Colors.red[700]! : Colors.green[700]!;
     final IconData qualityIcon = isContaminated
         ? Icons.warning_amber_rounded
         : Icons.check_circle_rounded;
@@ -501,6 +506,12 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
       mainAxisSpacing: 16.0,
       shrinkWrap: true, // Important inside a SingleChildScrollView
       physics: const NeverScrollableScrollPhysics(), // Disables grid scrolling
+
+      // *** FIX 1: Added childAspectRatio to prevent overflow ***
+      // This makes the tiles taller than they are wide.
+      // Adjust 0.85 up or down if needed (e.g., 0.8, 0.9).
+      childAspectRatio: 0.85,
+
       children: [
         // Distance Tile
         _buildSensorTile(
@@ -526,6 +537,7 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
   }
 
   /// A reusable template for the sensor data tiles.
+  /// *** FIX 2: Restructured Column for better layout ***
   Widget _buildSensorTile({
     required IconData icon,
     required Color iconColor,
@@ -541,15 +553,11 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
-          // Keep the column to the size of its children so it doesn't try to
-          // expand to the full tile height (which caused the overflow).
-          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
-          // Use start alignment so children stack naturally. Spacing is
-          // handled with SizedBox between items.
-          mainAxisAlignment: MainAxisAlignment.start,
+          // This MainAxisAlignment now works on just two children
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            // Header: Icon + Title
+            // --- CHILD 1: The Header Row ---
             Row(
               children: [
                 Icon(icon, color: iconColor, size: 24),
@@ -567,23 +575,33 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
 
-            // Value
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.w800,
-                color: valueColor,
-              ),
-            ),
-            const SizedBox(height: 4),
-
-            // Description
-            Text(
-              description,
-              style: const TextStyle(fontSize: 14, color: _secondaryText),
+            // --- CHILD 2: The Data Column ---
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                    color: valueColor,
+                  ),
+                  // Add this to prevent the value itself from overflowing
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  description,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: _secondaryText,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
             ),
           ],
         ),
@@ -604,7 +622,10 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12.0),
         ),
-        textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        textStyle: const TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }
