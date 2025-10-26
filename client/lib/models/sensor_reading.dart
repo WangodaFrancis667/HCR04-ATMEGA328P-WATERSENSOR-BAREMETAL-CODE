@@ -1,14 +1,19 @@
-/// Model class representing a sensor reading stored in the database
+/// Model class representing a sensor reading with tank configuration
 class SensorReading {
-  final int? id; // Auto-increment primary key
-  final DateTime timestamp; // When the reading was received
-  final int distance; // Distance in centimeters
-  final int waterQuality; // Water sensor ADC value (0-1023)
-  final String status; // EMPTY, HALF_FULL, OVERFLOW, CONTAMINATED
-  final bool alert; // Alert flag
-  final int arduinoUptime; // Arduino uptime in milliseconds
-  final String deviceName; // Name of connected Bluetooth device
-  final String deviceAddress; // MAC address of Bluetooth device
+  final int? id;
+  final DateTime timestamp;
+  final int distance;
+  final int waterQuality;
+  final String status;
+  final bool alert;
+  final int arduinoUptime;
+  final String deviceName;
+  final String deviceAddress;
+  
+  // New fields for dynamic tank configuration
+  final double? tankHeight;      // Tank height in cm
+  final double? waterLevel;      // Actual water level in cm
+  final double? percentage;      // Water level as percentage (0-100%)
 
   SensorReading({
     this.id,
@@ -20,6 +25,9 @@ class SensorReading {
     required this.arduinoUptime,
     required this.deviceName,
     required this.deviceAddress,
+    this.tankHeight,
+    this.waterLevel,
+    this.percentage,
   });
 
   /// Create SensorReading from database map
@@ -34,6 +42,9 @@ class SensorReading {
       arduinoUptime: map['arduinoUptime'] as int,
       deviceName: map['deviceName'] as String,
       deviceAddress: map['deviceAddress'] as String,
+      tankHeight: map['tankHeight'] as double?,
+      waterLevel: map['waterLevel'] as double?,
+      percentage: map['percentage'] as double?,
     );
   }
 
@@ -49,6 +60,9 @@ class SensorReading {
       'arduinoUptime': arduinoUptime,
       'deviceName': deviceName,
       'deviceAddress': deviceAddress,
+      'tankHeight': tankHeight,
+      'waterLevel': waterLevel,
+      'percentage': percentage,
     };
   }
 
@@ -64,6 +78,9 @@ class SensorReading {
       'Arduino Uptime': _formatUptime(arduinoUptime),
       'Device Name': deviceName,
       'Device Address': deviceAddress,
+      if (tankHeight != null) 'Tank Height (cm)': tankHeight!.toStringAsFixed(1),
+      if (waterLevel != null) 'Water Level (cm)': waterLevel!.toStringAsFixed(1),
+      if (percentage != null) 'Fill Percentage': '${percentage!.toStringAsFixed(1)}%',
     };
   }
 
@@ -77,12 +94,17 @@ class SensorReading {
 
   /// Get a summary string of this reading
   String getSummary() {
-    return 'Distance: ${distance}cm, Water: $waterQuality, Status: $status';
+    String base = 'Distance: ${distance}cm, Water: $waterQuality, Status: $status';
+    if (percentage != null) {
+      base += ', Fill: ${percentage!.toStringAsFixed(1)}%';
+    }
+    return base;
   }
 
   @override
   String toString() {
     return 'SensorReading{id: $id, timestamp: $timestamp, distance: ${distance}cm, '
-        'waterQuality: $waterQuality, status: $status, alert: $alert}';
+        'waterQuality: $waterQuality, status: $status, alert: $alert, '
+        'tankHeight: $tankHeight, waterLevel: $waterLevel, percentage: $percentage}';
   }
 }
