@@ -3,15 +3,20 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import 'bluetooth_connection_screen.dart'; // Make sure this import is correct
+import '../database/database_helper.dart';
+import '../models/sensor_reading.dart';
 
 class SensorDataScreen extends StatefulWidget {
   final BluetoothConnection connection;
   final BluetoothDevice device;
+  // Optional callback to notify parent when the user disconnects.
+  final VoidCallback? onDisconnect;
 
   const SensorDataScreen({
     super.key,
     required this.connection,
     required this.device,
+    this.onDisconnect,
   });
 
   @override
@@ -23,7 +28,9 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
   //                        THEME COLORS
   // ============================================================================
   static const Color _primaryBlue = Color(0xFF0D47A1); // A deep, classic blue
-  static const Color _lightBlueBackground = Color(0xFFE3F2FD); // Very light blue
+  static const Color _lightBlueBackground = Color(
+    0xFFE3F2FD,
+  ); // Very light blue
   static const Color _cardBackground = Colors.white;
   static const Color _primaryText = Color(0xFF212121);
   static const Color _secondaryText = Color(0xFF757575);
@@ -119,7 +126,7 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
     }
   }
 
-  void _parseJsonData(String jsonString) {
+  Future<void> _parseJsonData(String jsonString) async {
     try {
       // Parse JSON
       Map<String, dynamic> json = jsonDecode(jsonString);
@@ -158,6 +165,26 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
         'Updated sensor data: timestamp=$timestamp, distance=$distance cm, '
         'water=$waterQuality, status=$status, alert=$alert',
       );
+
+      // Persist the reading to the local SQLite database.
+      try {
+        final reading = SensorReading(
+          timestamp: DateTime.now(),
+          distance: distance,
+          waterQuality: waterQuality,
+          status: status,
+          alert: alert,
+          arduinoUptime: timestamp,
+          deviceName: widget.device.name ?? '',
+          deviceAddress: widget.device.address,
+        );
+
+        // Insert and log the assigned id (DatabaseHelper also prints on insert)
+        final id = await DatabaseHelper.instance.insertReading(reading);
+        debugPrint('Sensor reading persisted with id: $id');
+      } catch (dbError) {
+        debugPrint('Error inserting reading into DB: $dbError');
+      }
     } catch (e) {
       debugPrint('JSON parse error: $e');
       debugPrint('Failed JSON string: $jsonString');
@@ -169,32 +196,31 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
   // ============================================================================
 
   void _startConnectionMonitoring() {
-    connectionMonitor = Timer.periodic(
-      const Duration(seconds: 3),
-      (timer) {
-        if (!isConnected) {
-          timer.cancel();
-          return;
-        }
+    connectionMonitor = Timer.periodic(const Duration(seconds: 3), (timer) {
+      if (!isConnected) {
+        timer.cancel();
+        return;
+      }
 
-        // Check if we've received data recently (within 5 seconds)
-        if (lastDataReceived != null) {
-          final timeSinceLastData =
-              DateTime.now().difference(lastDataReceived!).inSeconds;
+      // Check if we've received data recently (within 5 seconds)
+      if (lastDataReceived != null) {
+        final timeSinceLastData = DateTime.now()
+            .difference(lastDataReceived!)
+            .inSeconds;
 
-          if (timeSinceLastData > 5) {
-            debugPrint(
-                'Warning: No data received for $timeSinceLastData seconds');
+        if (timeSinceLastData > 5) {
+          debugPrint(
+            'Warning: No data received for $timeSinceLastData seconds',
+          );
 
-            if (timeSinceLastData > 10) {
-              debugPrint('Connection appears dead, disconnecting...');
-              _handleDisconnection();
-              _showSnackBar('Connection lost - no data received', Colors.red);
-            }
+          if (timeSinceLastData > 10) {
+            debugPrint('Connection appears dead, disconnecting...');
+            _handleDisconnection();
+            _showSnackBar('Connection lost - no data received', Colors.red);
           }
         }
-      },
-    );
+      }
+    });
   }
 
   void _handleDisconnection() {
@@ -203,15 +229,34 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
     });
 
     connectionMonitor?.cancel();
-
-    // Navigate back to connection screen
-    if (mounted) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const BluetoothConnectionScreen(),
-        ),
-      );
+    // Notify parent if it provided a disconnect handler (preferred). The
+    // parent (e.g. MainNavigationScreen) can update its state and show the
+    // connection screen. If no handler is provided, fall back to navigating
+    // back to the connection screen directly.
+    if (widget.onDisconnect != null) {
+      widget.onDisconnect!();
+    } else {
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => BluetoothConnectionScreen(
+              onConnectionEstablished:
+                  (BluetoothConnection connection, BluetoothDevice device) {
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => SensorDataScreen(
+                          connection: connection,
+                          device: device,
+                        ),
+                      ),
+                    );
+                  },
+            ),
+          ),
+        );
+      }
     }
   }
 
@@ -224,11 +269,26 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
       debugPrint('Manually disconnected from device');
 
       // Navigate back to connection screen
-      if (mounted) {
+      if (widget.onDisconnect != null) {
+        widget.onDisconnect!();
+      } else if (mounted) {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (context) => const BluetoothConnectionScreen(),
+            builder: (context) => BluetoothConnectionScreen(
+              onConnectionEstablished:
+                  (BluetoothConnection connection, BluetoothDevice device) {
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => SensorDataScreen(
+                          connection: connection,
+                          device: device,
+                        ),
+                      ),
+                    );
+                  },
+            ),
           ),
         );
       }
@@ -405,10 +465,7 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
                   const SizedBox(height: 2),
                   Text(
                     _getTimestampDisplay(),
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: _secondaryText,
-                    ),
+                    style: const TextStyle(fontSize: 12, color: _secondaryText),
                   ),
                 ],
               ),
@@ -432,11 +489,7 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
         padding: const EdgeInsets.symmetric(vertical: 24.0, horizontal: 16.0),
         child: Column(
           children: [
-            Icon(
-              _getStatusIcon(),
-              size: 72,
-              color: statusColor,
-            ),
+            Icon(_getStatusIcon(), size: 72, color: statusColor),
             const SizedBox(height: 12),
             Text(
               _getStatusText(),
@@ -490,8 +543,9 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
   Widget _buildSensorGrid() {
     // Determine colors for the water quality tile
     final bool isContaminated = waterQuality > 100;
-    final Color qualityColor =
-        isContaminated ? Colors.red[700]! : Colors.green[700]!;
+    final Color qualityColor = isContaminated
+        ? Colors.red[700]!
+        : Colors.green[700]!;
     final IconData qualityIcon = isContaminated
         ? Icons.warning_amber_rounded
         : Icons.check_circle_rounded;
@@ -506,7 +560,6 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
       mainAxisSpacing: 16.0,
       shrinkWrap: true, // Important inside a SingleChildScrollView
       physics: const NeverScrollableScrollPhysics(), // Disables grid scrolling
-
       // *** FIX 1: Added childAspectRatio to prevent overflow ***
       // This makes the tiles taller than they are wide.
       // Adjust 0.85 up or down if needed (e.g., 0.8, 0.9).
@@ -594,10 +647,7 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
                 const SizedBox(height: 4),
                 Text(
                   description,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: _secondaryText,
-                  ),
+                  style: const TextStyle(fontSize: 14, color: _secondaryText),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -622,10 +672,7 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12.0),
         ),
-        textStyle: const TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.bold,
-        ),
+        textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
       ),
     );
   }
