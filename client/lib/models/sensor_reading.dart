@@ -9,11 +9,11 @@ class SensorReading {
   final int arduinoUptime;
   final String deviceName;
   final String deviceAddress;
-  
+
   // New fields for dynamic tank configuration
-  final double? tankHeight;      // Tank height in cm
-  final double? waterLevel;      // Actual water level in cm
-  final double? percentage;      // Water level as percentage (0-100%)
+  final double? tankHeight; // Tank height in cm
+  final double? waterLevel; // Actual water level in cm
+  final double? percentage; // Water level as percentage (0-100%)
 
   SensorReading({
     this.id,
@@ -35,16 +35,28 @@ class SensorReading {
     return SensorReading(
       id: map['id'] as int?,
       timestamp: DateTime.parse(map['timestamp'] as String),
-      distance: map['distance'] as int,
-      waterQuality: map['waterQuality'] as int,
+      distance: (map['distance'] is num) ? (map['distance'] as num).toInt() : 0,
+      waterQuality: (map['waterQuality'] is num)
+          ? (map['waterQuality'] as num).toInt()
+          : 0,
       status: map['status'] as String,
-      alert: (map['alert'] as int) == 1,
-      arduinoUptime: map['arduinoUptime'] as int,
+      alert: (map['alert'] is int)
+          ? (map['alert'] as int) == 1
+          : (map['alert'] == true),
+      arduinoUptime: (map['arduinoUptime'] is num)
+          ? (map['arduinoUptime'] as num).toInt()
+          : 0,
       deviceName: map['deviceName'] as String,
       deviceAddress: map['deviceAddress'] as String,
-      tankHeight: map['tankHeight'] as double?,
-      waterLevel: map['waterLevel'] as double?,
-      percentage: map['percentage'] as double?,
+      tankHeight: (map['tankHeight'] is num)
+          ? (map['tankHeight'] as num).toDouble()
+          : null,
+      waterLevel: (map['waterLevel'] is num)
+          ? (map['waterLevel'] as num).toDouble()
+          : null,
+      percentage: (map['percentage'] is num)
+          ? (map['percentage'] as num).toDouble()
+          : null,
     );
   }
 
@@ -78,9 +90,12 @@ class SensorReading {
       'Arduino Uptime': _formatUptime(arduinoUptime),
       'Device Name': deviceName,
       'Device Address': deviceAddress,
-      if (tankHeight != null) 'Tank Height (cm)': tankHeight!.toStringAsFixed(1),
-      if (waterLevel != null) 'Water Level (cm)': waterLevel!.toStringAsFixed(1),
-      if (percentage != null) 'Fill Percentage': '${percentage!.toStringAsFixed(1)}%',
+      if (tankHeight != null)
+        'Tank Height (cm)': tankHeight!.toStringAsFixed(1),
+      if (waterLevel != null)
+        'Water Level (cm)': waterLevel!.toStringAsFixed(1),
+      if (percentage != null)
+        'Fill Percentage': '${percentage!.toStringAsFixed(1)}%',
     };
   }
 
@@ -94,7 +109,8 @@ class SensorReading {
 
   /// Get a summary string of this reading
   String getSummary() {
-    String base = 'Distance: ${distance}cm, Water: $waterQuality, Status: $status';
+    String base =
+        'Distance: ${distance}cm, Water: $waterQuality, Status: $status';
     if (percentage != null) {
       base += ', Fill: ${percentage!.toStringAsFixed(1)}%';
     }
