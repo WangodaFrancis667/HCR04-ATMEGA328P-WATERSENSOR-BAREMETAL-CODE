@@ -180,7 +180,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           if (index == 1 && !_isConnected) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('Please connect to a device first'),
+                content: Text('Please connect to the system first'),
                 backgroundColor: Colors.orange,
                 duration: Duration(seconds: 2),
                 behavior: SnackBarBehavior.floating,
