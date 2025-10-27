@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "author": "Gemini",
+  "editor": "Wokwi",
+  "parts": [
+    {
+      "type": "wokwi-arduino-mega",
+      "id": "mega",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-hc-sr04",
+      "id": "hc1",
+      "top": 20,
+      "left": 400,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led1",
+      "top": 140,
+      "left": 450,
+      "attrs": { "color": "red" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r1",
+      "top": 170,
+      "left": 380,
+      "attrs": { "value": "220" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led2",
+      "top": 220,
+      "left": 450,
+      "attrs": { "color": "yellow" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r2",
+      "top": 250,
+      "left": 380,
+      "attrs": { "value": "220" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led3",
+      "top": 300,
+      "left": 450,
+      "attrs": { "color": "green" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r3",
+      "top": 330,
+      "left": 380,
+      "attrs": { "value": "220" }
+    },
+    {
+      "type": "wokwi-buzzer",
+      "id": "bz1",
+      "top": 380,
+      "left": 420,
+      "attrs": {}
+    }
+  ],
+  "connections": [
+    [ "mega:5V", "hc1:VCC", "red", [ "v-10", "h-220", "v-10" ] ],
+    [ "mega:GND.1", "hc1:GND", "black", [ "v0" ] ],
+    [ "mega:7", "hc1:TRIG", "green", [ "h-15", "v-10", "h-20" ] ],
+    [ "mega:48", "hc1:ECHO", "blue", [ "h-100", "v-20" ] ],
+    
+    [ "mega:5V", "led1:A", "red", [ "h-20", "v-60" ] ],
+    [ "led1:C", "r1:1", "red", [ "h0" ] ],
+    [ "r1:2", "mega:2", "gray", [ "h-60", "v-100" ] ],
+    
+    [ "mega:5V", "led2:A", "red", [ "h-30", "v-80" ] ],
+    [ "led2:C", "r2:1", "yellow", [ "h0" ] ],
+    [ "r2:2", "mega:3", "gray", [ "h-70", "v-120" ] ],
+    
+    [ "mega:5V", "led3:A", "red", [ "h-40", "v-100" ] ],
+    [ "led3:C", "r3:1", "green", [ "h0" ] ],
+    [ "r3:2", "mega:4", "gray", [ "h-80", "v-140" ] ],
+    
+    [ "mega:5V", "bz1:1", "red", [ "h-50", "v-120" ] ],
+    [ "bz1:2", "mega:5", "gray", [ "h-90", "v-160" ] ]
+  ]
+}
+
