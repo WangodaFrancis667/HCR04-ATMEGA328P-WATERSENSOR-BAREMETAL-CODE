@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import 'bluetooth_connection_screen.dart'; // Make sure this import is correct
 import '../database/database_helper.dart';
@@ -43,6 +45,7 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
   int timestamp = 0; // Milliseconds since Arduino startup
   int distance = 0; // Distance in centimeters
   int waterQuality = 0; // Water sensor ADC value (0-1023)
+  double percentage = 0.0; // Fill percentage (0.0 - 100.0)
   String status = 'EMPTY'; // EMPTY, HALF_FULL, OVERFLOW, CONTAMINATED
   bool alert = false; // Alert flag (true/false)
 
@@ -58,16 +61,24 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
   // Connection status
   bool isConnected = true;
 
+  // User-configurable tank height (cm) - optional
+  double? tankHeight;
+
+  // Controller for height input
+  final TextEditingController _heightController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
     _startListeningForData();
     _startConnectionMonitoring();
+    _loadSavedTankHeight();
   }
 
   @override
   void dispose() {
     connectionMonitor?.cancel();
+    _heightController.dispose();
     widget.connection.dispose();
     super.dispose();
   }
@@ -102,17 +113,22 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
       // Add to buffer
       dataBuffer += chunk;
 
-      // Process complete JSON messages (ending with newline)
+      // Process complete messages (ending with newline)
       while (dataBuffer.contains('\n')) {
         int newlineIndex = dataBuffer.indexOf('\n');
-        String jsonString = dataBuffer.substring(0, newlineIndex).trim();
+        String msg = dataBuffer.substring(0, newlineIndex).trim();
         dataBuffer = dataBuffer.substring(newlineIndex + 1);
 
-        debugPrint('Complete JSON message: $jsonString');
+        debugPrint('Complete message: $msg');
 
-        // Parse JSON if not empty
-        if (jsonString.isNotEmpty && jsonString.startsWith('{')) {
-          _parseJsonData(jsonString);
+        if (msg.isEmpty) continue;
+
+        // If it's JSON (legacy or some confirmations), parse as JSON
+        if (msg.startsWith('{')) {
+          _parseJsonData(msg);
+        } else {
+          // Otherwise it's the MCU's ASCII protocol: T:...,P:...,W:...,S:...,A:... or H:<value>
+          _parsePlainPacket(msg);
         }
       }
 
@@ -133,19 +149,76 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
 
       debugPrint('Parsed JSON: $json');
 
-      // Update UI with new data
+      // If MCU returns a dedicated 'height' key, treat it as confirmation
+      if (json.containsKey('height')) {
+        var h = json['height'];
+        if (h is num) {
+          final double confirmed = h.toDouble();
+          // Update UI and persist locally
+          setState(() {
+            tankHeight = confirmed;
+            _heightController.text = confirmed.toStringAsFixed(1);
+          });
+          await _saveTankHeightLocally(confirmed);
+          if (mounted) {
+            _showSnackBar(
+              'Tank height confirmed: ${confirmed.toStringAsFixed(1)} cm',
+              Colors.green,
+            );
+          }
+          // Continue to parse telemetry in the same message if present
+        }
+      }
+
+      // Distinguish telemetry messages from simple confirmations
+      // Telemetry messages include keys like 'percentage', 'water' or 'timestamp'.
+      // Simple confirmations from MCU (e.g. {"status":"..."}) may only include a 'status' field.
+      final bool looksLikeTelemetry =
+          json.containsKey('percentage') ||
+          json.containsKey('water') ||
+          json.containsKey('timestamp');
+
+      if (!looksLikeTelemetry && json.containsKey('status')) {
+        // This is likely a confirmation/notice from MCU. Show it to the user.
+        final String msg = json['status'].toString();
+        if (mounted) _showSnackBar(msg, Colors.green);
+        return;
+      }
+
+      // Update UI with telemetry data
       setState(() {
         // Update timestamp (milliseconds since Arduino startup)
         timestamp = json['timestamp'] ?? 0;
 
-        // Update distance (integer centimeters)
-        distance = json['distance'] ?? 0;
+        // Update percentage (newer firmware sends percentage)
+        if (json.containsKey('percentage')) {
+          var p = json['percentage'];
+          if (p is num) {
+            percentage = p.toDouble();
+          } else if (p is String) {
+            percentage = double.tryParse(p) ?? percentage;
+          }
+        }
+
+        // Update distance: prefer explicit 'distance' field from MCU if present,
+        // otherwise compute from percentage and known tank height (if set).
+        if (json['distance'] != null) {
+          distance = (json['distance'] as num).toInt();
+        } else if (percentage > 0.0 && tankHeight != null) {
+          // Compute distance from top sensor to water surface in cm.
+          // If percentage is fill percent (0 = empty, 100 = full), then
+          // distance = tankHeight * (1 - percentage/100).
+          final double computed = tankHeight! * (1.0 - (percentage / 100.0));
+          distance = computed.round();
+        }
 
         // Update water quality (0-1023 ADC value)
-        waterQuality = json['water'] ?? 0;
+        waterQuality = (json['water'] is num)
+            ? (json['water'] as num).toInt()
+            : (json['water'] ?? waterQuality);
 
         // Update status string
-        status = json['status'] ?? 'EMPTY';
+        status = json['status'] ?? status;
 
         // Update alert flag
         var alertValue = json['alert'];
@@ -153,8 +226,6 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
           alert = alertValue == 1;
         } else if (alertValue is bool) {
           alert = alertValue;
-        } else {
-          alert = false;
         }
 
         // Update last received time
@@ -177,6 +248,8 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
           arduinoUptime: timestamp,
           deviceName: widget.device.name ?? '',
           deviceAddress: widget.device.address,
+          percentage: percentage,
+          tankHeight: tankHeight,
         );
 
         // Insert and log the assigned id (DatabaseHelper also prints on insert)
@@ -188,6 +261,139 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
     } catch (e) {
       debugPrint('JSON parse error: $e');
       debugPrint('Failed JSON string: $jsonString');
+    }
+  }
+
+  /// Parse the MCU ASCII status packets and confirmations.
+  /// Expected formats:
+  /// - Telemetry: "T:12345,P:50,W:123,S:2,A:1" (keys separated by commas)
+  /// - Height confirmation: "H:100" (integer cm)
+  Future<void> _parsePlainPacket(String packet) async {
+    try {
+      final s = packet.trim();
+      if (s.isEmpty) return;
+
+      // Handle simple height confirmation: "H:100" or "H:100\r"
+      if (s.startsWith('H:')) {
+        final rest = s.substring(2).trim();
+        final int? h = int.tryParse(rest);
+        if (h != null) {
+          setState(() {
+            tankHeight = h.toDouble();
+            _heightController.text = tankHeight!.toStringAsFixed(1);
+          });
+          await _saveTankHeightLocally(tankHeight!);
+          if (mounted) {
+            _showSnackBar(
+              'Tank height confirmed: ${tankHeight!.toStringAsFixed(1)} cm',
+              Colors.green,
+            );
+          }
+        }
+        return;
+      }
+
+      // Otherwise parse key:value pairs separated by commas
+      final parts = s.split(',');
+      int? parsedTimestamp;
+      int? parsedP;
+      int? parsedW;
+      int? parsedS;
+      int? parsedA;
+
+      for (var part in parts) {
+        final token = part.trim();
+        if (!token.contains(':')) continue;
+        final kv = token.split(':');
+        if (kv.length < 2) continue;
+        final key = kv[0].trim();
+        final value = kv.sublist(1).join(':').trim();
+
+        switch (key) {
+          case 'T':
+            parsedTimestamp = int.tryParse(value);
+            break;
+          case 'P':
+            parsedP = int.tryParse(value);
+            break;
+          case 'W':
+            parsedW = int.tryParse(value);
+            break;
+          case 'S':
+            parsedS = int.tryParse(value);
+            break;
+          case 'A':
+            parsedA = int.tryParse(value);
+            break;
+          default:
+            break;
+        }
+      }
+
+      // If this looks like telemetry, update UI and persist
+      final bool hasTelemetry =
+          parsedTimestamp != null ||
+          parsedP != null ||
+          parsedW != null ||
+          parsedS != null ||
+          parsedA != null;
+      if (!hasTelemetry) return;
+
+      // Map status code to string (matches MCU enum)
+      String mapStatus(int code) {
+        switch (code) {
+          case 3:
+            return 'CONTAMINATED';
+          case 2:
+            return 'OVERFLOW';
+          case 1:
+            return 'HALF_FULL';
+          case 0:
+          default:
+            return 'EMPTY';
+        }
+      }
+
+      setState(() {
+        if (parsedTimestamp != null) timestamp = parsedTimestamp;
+        if (parsedP != null) percentage = parsedP.toDouble();
+
+        // Compute distance from percentage when tankHeight is known. If the MCU
+        // provided an explicit distance field in other packets use that (not
+        // available in the compact ASCII format), so here we compute.
+        if (parsedP != null && tankHeight != null) {
+          final double computed = tankHeight! * (1.0 - (percentage / 100.0));
+          distance = computed.round();
+        }
+
+        if (parsedW != null) waterQuality = parsedW;
+        if (parsedS != null) status = mapStatus(parsedS);
+        if (parsedA != null) alert = parsedA == 1;
+        lastDataReceived = DateTime.now();
+      });
+
+      // Persist reading to DB (distance unknown in this packet, keep previous)
+      try {
+        final reading = SensorReading(
+          timestamp: DateTime.now(),
+          distance: distance,
+          waterQuality: waterQuality,
+          status: status,
+          alert: alert,
+          arduinoUptime: timestamp,
+          deviceName: widget.device.name ?? '',
+          deviceAddress: widget.device.address,
+          percentage: percentage,
+          tankHeight: tankHeight,
+        );
+
+        final id = await DatabaseHelper.instance.insertReading(reading);
+        debugPrint('Persisted reading from plain packet with id: $id');
+      } catch (dbError) {
+        debugPrint('DB insert error for plain packet: $dbError');
+      }
+    } catch (e) {
+      debugPrint('Plain packet parse error: $e');
     }
   }
 
@@ -317,6 +523,115 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
     );
   }
 
+  /// Load saved tank height from SharedPreferences (if present)
+  Future<void> _loadSavedTankHeight() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.containsKey('tankHeight')) {
+        final double? saved = prefs.getDouble('tankHeight');
+        if (saved != null) {
+          setState(() {
+            tankHeight = saved;
+            _heightController.text = saved.toStringAsFixed(1);
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Failed to load saved tank height: $e');
+    }
+  }
+
+  /// Save tank height locally (used when MCU confirms)
+  Future<void> _saveTankHeightLocally(double h) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble('tankHeight', h);
+      debugPrint('Saved tankHeight=$h to preferences');
+    } catch (e) {
+      debugPrint('Failed to save tank height: $e');
+    }
+  }
+
+  /// Show dialog to enter tank height (cm) and send it over Bluetooth
+  void _showSetHeightDialog() {
+    // Pre-fill with current value if available
+    _heightController.text = tankHeight != null
+        ? tankHeight!.toStringAsFixed(1)
+        : '';
+
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Set Tank Height (cm)'),
+          content: TextField(
+            controller: _heightController,
+            keyboardType: const TextInputType.numberWithOptions(
+              decimal: true,
+              signed: false,
+            ),
+            decoration: const InputDecoration(
+              hintText: 'Enter height in cm (e.g. 10.0)',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              // --- FIX 1: Make onPressed async ---
+              onPressed: () async {
+                final raw = _heightController.text.trim();
+                final parsed = double.tryParse(raw);
+                if (parsed == null || parsed <= 0 || parsed >= 500) {
+                  _showSnackBar(
+                    'Please enter a valid height (0 < cm < 500)',
+                    Colors.red,
+                  );
+                  return;
+                }
+
+                // --- FIX 2: Update UI and Save Locally Immediately ---
+                // This provides instant feedback to the user.
+                setState(() {
+                  tankHeight = parsed;
+                  // Keep the controller in sync
+                  _heightController.text = parsed.toStringAsFixed(1);
+                });
+                await _saveTankHeightLocally(parsed); // Save it
+                // --- END OF FIX 2 ---
+
+                // Send integer centimeters as ASCII digits terminated with newline to MCU.
+                // MCU RX ISR accepts digits only (no decimal point), so send an integer
+                // to avoid accidental scaling (e.g., "10.0" -> "100" on the MCU).
+                try {
+                  final String payload = '${parsed.round().toString()}\n';
+                  widget.connection.output.add(
+                    Uint8List.fromList(utf8.encode(payload)),
+                  );
+                  _showSnackBar(
+                    'Sent & set tank height: ${parsed.toStringAsFixed(1)} cm',
+                    Colors.green,
+                  );
+                } catch (e) {
+                  debugPrint('Failed to send tank height: $e');
+                  _showSnackBar('Failed to send height: $e', Colors.red);
+                }
+
+                // --- FIX 4: Add 'if (mounted)' check for safety ---
+                if (mounted) {
+                  Navigator.of(context).pop();
+                }
+              },
+              child: const Text('Send'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   // Updated to use the blue theme for default states
   Color _getStatusColor() {
     switch (status) {
@@ -361,9 +676,10 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
   }
 
   String _getDistanceDescription() {
-    if (distance <= 0) return 'No reading';
-    if (distance <= 7) return 'Near overflow!';
-    if (distance <= 15) return 'Half full';
+    // Prefer percentage-driven descriptions when available
+    if (percentage <= 0.0) return 'No reading';
+    if (percentage >= 50.0) return 'Near overflow!';
+    if (percentage > 5.0) return 'Half full';
     return 'Low water level';
   }
 
@@ -467,6 +783,36 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
                     _getTimestampDisplay(),
                     style: const TextStyle(fontSize: 12, color: _secondaryText),
                   ),
+                  const SizedBox(height: 8),
+                  // Button to set tank height via Bluetooth
+                  Row(
+                    children: [
+                      ElevatedButton.icon(
+                        onPressed: () => _showSetHeightDialog(),
+                        icon: const Icon(Icons.settings),
+                        label: const Text('Set Tank Height'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _primaryBlue,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      // Always show current tank height (or a 'Not set' placeholder)
+                      Text(
+                        tankHeight != null
+                            ? 'Current: ${tankHeight!.toStringAsFixed(1)} cm'
+                            : 'Current: Not set',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: _secondaryText,
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -550,9 +896,9 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
         ? Icons.warning_amber_rounded
         : Icons.check_circle_rounded;
 
-    // Determine colors for the distance tile
-    final bool isDistanceValid = distance > 0;
-    final Color distanceColor = isDistanceValid ? _primaryBlue : _secondaryText;
+    // Determine colors for the level tile (use percentage when available)
+    final bool isLevelValid = percentage > 0.0;
+    final Color distanceColor = isLevelValid ? _primaryBlue : _secondaryText;
 
     return GridView.count(
       crossAxisCount: 2,
@@ -566,12 +912,12 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
       childAspectRatio: 0.85,
 
       children: [
-        // Distance Tile
+        // Water Level Tile (shows percentage)
         _buildSensorTile(
           icon: Icons.height_rounded,
           iconColor: distanceColor,
           title: 'Water Level',
-          value: isDistanceValid ? '$distance cm' : 'N/A',
+          value: isLevelValid ? '${percentage.toStringAsFixed(1)} %' : 'N/A',
           valueColor: distanceColor,
           description: _getDistanceDescription(),
         ),
@@ -677,3 +1023,4 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
     );
   }
 }
+
