@@ -482,9 +482,9 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
 
     return Card(
       // Use a light tint of the status color for the background
-      color: statusColor.withOpacity(0.15),
-      elevation: 4.0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+      color: statusColor.withValues(alpha: 0.15),
+      elevation: 2.0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22.0)),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 24.0, horizontal: 16.0),
         child: Column(
