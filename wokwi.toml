@@ -1,0 +1,14 @@
+[wokwi]
+version = 1
+gdbServerPort = 3333
+# This path is based on the build output log you provided.
+elf = ".pio/build/mega2560/firmware.elf"
+firmware = ".pio/build/mega2560/firmware.hex"
+
+# Use the visual diagram in `diagram.json` for the Wokwi bench layout
+diagram = "diagram.json"
+
+# Notes:
+# - This project builds for the ATmega2560 (PlatformIO env: mega2560).
+# - Firmware uses UART1 (UDR1). In Wokwi you can view serial output by
+#   opening a serial terminal attached to the board's TX1/RX1 if required.
