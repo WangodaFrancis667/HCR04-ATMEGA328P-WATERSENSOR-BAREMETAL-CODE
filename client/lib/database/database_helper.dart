@@ -24,8 +24,9 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: _createDB,
+      onUpgrade: _upgradeDB,
     );
   }
 
@@ -34,6 +35,7 @@ class DatabaseHelper {
     const idType = 'INTEGER PRIMARY KEY AUTOINCREMENT';
     const textType = 'TEXT NOT NULL';
     const intType = 'INTEGER NOT NULL';
+    const realType = 'REAL';
 
     await db.execute('''
       CREATE TABLE sensor_readings (
@@ -45,7 +47,10 @@ class DatabaseHelper {
         alert $intType,
         arduinoUptime $intType,
         deviceName $textType,
-        deviceAddress $textType
+        deviceAddress $textType,
+        percentage $realType,
+        tankHeight $realType,
+        waterLevel $realType
       )
     ''');
 
@@ -55,6 +60,30 @@ class DatabaseHelper {
     ''');
 
     print('Database created successfully with sensor_readings table');
+  }
+
+  /// Upgrade database schema between versions
+  Future<void> _upgradeDB(Database db, int oldVersion, int newVersion) async {
+    // Version 2 adds percentage, tankHeight, and waterLevel columns
+    if (oldVersion < 2) {
+      try {
+        await db.execute(
+          'ALTER TABLE sensor_readings ADD COLUMN percentage REAL',
+        );
+      } catch (e) {
+        // Column may already exist
+      }
+      try {
+        await db.execute(
+          'ALTER TABLE sensor_readings ADD COLUMN tankHeight REAL',
+        );
+      } catch (e) {}
+      try {
+        await db.execute(
+          'ALTER TABLE sensor_readings ADD COLUMN waterLevel REAL',
+        );
+      } catch (e) {}
+    }
   }
 
   /// Insert a sensor reading into the database
@@ -70,7 +99,7 @@ class DatabaseHelper {
     final db = await instance.database;
     const orderBy = 'timestamp DESC';
     final result = await db.query('sensor_readings', orderBy: orderBy);
-    
+
     return result.map((map) => SensorReading.fromMap(map)).toList();
   }
 
@@ -86,7 +115,7 @@ class DatabaseHelper {
       limit: limit,
       offset: offset,
     );
-    
+
     return result.map((map) => SensorReading.fromMap(map)).toList();
   }
 
@@ -99,13 +128,10 @@ class DatabaseHelper {
     final result = await db.query(
       'sensor_readings',
       where: 'timestamp BETWEEN ? AND ?',
-      whereArgs: [
-        startDate.toIso8601String(),
-        endDate.toIso8601String(),
-      ],
+      whereArgs: [startDate.toIso8601String(), endDate.toIso8601String()],
       orderBy: 'timestamp DESC',
     );
-    
+
     return result.map((map) => SensorReading.fromMap(map)).toList();
   }
 
@@ -118,7 +144,7 @@ class DatabaseHelper {
       whereArgs: [status],
       orderBy: 'timestamp DESC',
     );
-    
+
     return result.map((map) => SensorReading.fromMap(map)).toList();
   }
 
@@ -131,7 +157,7 @@ class DatabaseHelper {
       whereArgs: [1],
       orderBy: 'timestamp DESC',
     );
-    
+
     return result.map((map) => SensorReading.fromMap(map)).toList();
   }
 
@@ -150,7 +176,7 @@ class DatabaseHelper {
       FROM sensor_readings 
       GROUP BY status
     ''');
-    
+
     Map<String, int> counts = {};
     for (var row in result) {
       counts[row['status'] as String] = row['count'] as int;
@@ -166,7 +192,7 @@ class DatabaseHelper {
       orderBy: 'timestamp DESC',
       limit: 1,
     );
-    
+
     if (result.isNotEmpty) {
       return SensorReading.fromMap(result.first);
     }
@@ -176,11 +202,7 @@ class DatabaseHelper {
   /// Delete a reading by ID
   Future<int> deleteReading(int id) async {
     final db = await instance.database;
-    return await db.delete(
-      'sensor_readings',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    return await db.delete('sensor_readings', where: 'id = ?', whereArgs: [id]);
   }
 
   /// Delete all readings
@@ -193,7 +215,7 @@ class DatabaseHelper {
   Future<int> deleteOldReadings(int days) async {
     final db = await instance.database;
     final cutoffDate = DateTime.now().subtract(Duration(days: days));
-    
+
     return await db.delete(
       'sensor_readings',
       where: 'timestamp < ?',
@@ -204,49 +226,62 @@ class DatabaseHelper {
   /// Get database statistics
   Future<Map<String, dynamic>> getStatistics() async {
     final db = await instance.database;
-    
+
     // Total count
     final totalResult = await db.rawQuery(
-      'SELECT COUNT(*) as total FROM sensor_readings'
+      'SELECT COUNT(*) as total FROM sensor_readings',
     );
     final total = Sqflite.firstIntValue(totalResult) ?? 0;
-    
+
     // Average distance
     final avgDistanceResult = await db.rawQuery(
-      'SELECT AVG(distance) as avg FROM sensor_readings'
+      'SELECT AVG(distance) as avg FROM sensor_readings',
     );
     final avgDistanceValue = avgDistanceResult.first['avg'] as num?;
     final avgDistance = avgDistanceValue?.toDouble();
-    
+
     // Average water quality
     final avgWaterResult = await db.rawQuery(
-      'SELECT AVG(waterQuality) as avg FROM sensor_readings'
+      'SELECT AVG(waterQuality) as avg FROM sensor_readings',
     );
     final avgWaterValue = avgWaterResult.first['avg'] as num?;
     final avgWater = avgWaterValue?.toDouble();
-    
+
+    // Average percentage (new in DB v2)
+    double? avgPercentage;
+    try {
+      final avgPercResult = await db.rawQuery(
+        'SELECT AVG(percentage) as avg FROM sensor_readings',
+      );
+      final avgPercValue = avgPercResult.first['avg'] as num?;
+      avgPercentage = avgPercValue?.toDouble();
+    } catch (e) {
+      avgPercentage = null;
+    }
+
     // Alert count
     final alertResult = await db.rawQuery(
-      'SELECT COUNT(*) as count FROM sensor_readings WHERE alert = 1'
+      'SELECT COUNT(*) as count FROM sensor_readings WHERE alert = 1',
     );
     final alertCount = Sqflite.firstIntValue(alertResult) ?? 0;
-    
+
     // Status breakdown
     final statusResult = await db.rawQuery('''
       SELECT status, COUNT(*) as count 
       FROM sensor_readings 
       GROUP BY status
     ''');
-    
+
     Map<String, int> statusBreakdown = {};
     for (var row in statusResult) {
       statusBreakdown[row['status'] as String] = row['count'] as int;
     }
-    
+
     return {
       'total': total,
       'averageDistance': avgDistance ?? 0.0,
       'averageWaterQuality': avgWater ?? 0.0,
+      'averagePercentage': avgPercentage ?? 0.0,
       'alertCount': alertCount,
       'statusBreakdown': statusBreakdown,
     };
