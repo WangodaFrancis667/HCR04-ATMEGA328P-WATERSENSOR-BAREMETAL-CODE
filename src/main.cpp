@@ -1,431 +1,381 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
-#include <stdio.h> // For sprintf
+#include <stdlib.h> // For atoi only
 
-#define TRIG_PIN 7      // PH4 - Trigger pulse output (starts measurement)
-#define ECHO_PIN 48     // PL1 - Echo pulse input (ICP5 - Timer5 Input Capture)
+// ============================================================================
+//                            PIN DEFINITIONS
+// ============================================================================
+#define TRIG_PIN        PH4     // Ultrasonic trigger
+#define ECHO_PIN        PL1     // Ultrasonic echo (ICP5)
 
-#define RED_LED_PIN 2    // PE4 - Contamination indicator
-#define YELLOW_LED_PIN 3 // PE5 - Half-full indicator
-#define GREEN_LED_PIN 4  // PG5 - Overflow warning indicator
+#define RED_LED         PE4     // Contamination indicator
+#define YELLOW_LED      PE5     // Half-full indicator  
+#define GREEN_LED       PG5     // Overflow warning
 
-#define BUZZER_PIN 5 // PE3 - Audio alarm (Active-Low: LOW = ON)
+#define BUZZER          PE3     // Active-low buzzer
 
-#define WATER_CONTAMINATION_THRESHOLD 100
+// ============================================================================
+//                            THRESHOLDS
+// ============================================================================
+#define WATER_CONTAMINATION_ADC     100     // ADC threshold for dirty water
+#define OVERFLOW_PERCENT            50      // Alert when ≥50% full
+#define EMPTY_PERCENT               5       // Consider empty when ≤5%
 
-// --- MODIFIED THRESHOLDS ---
-// Define the total measurable height of the container (H in your formula)
-// This is based on the previous 15.0f threshold, which represented "empty".
-#define CONTAINER_HEIGHT_CM 15.0f
+#define BT_SEND_INTERVAL_MS         500     // Bluetooth update rate
+#define SENSOR_READ_INTERVAL_MS     60      // Ultrasonic measurement rate
 
-// Define thresholds based on percentage (L/H * 100)
-// The old logic triggered "OVERFLOW" at D <= 7.5cm.
-// L = 15.0 - 7.5 = 7.5cm. Percentage = (7.5 / 15.0) * 100 = 50.0%
-#define LEVEL_OVERFLOW_PERCENT_THRESHOLD 50.0f
+// ============================================================================
+//                         GLOBAL VARIABLES
+// ============================================================================
+// Container height in cm (e.g., 10 = 10cm, 100 = 100cm)
+volatile uint16_t container_height_cm = 10;  // Default: 10cm
 
-// Define a threshold for what is considered "empty" (e.g., 5%)
-#define LEVEL_EMPTY_PERCENT_THRESHOLD 5.0f
-// --- END MODIFICATIONS ---
+// Ultrasonic sensor state (distance in cm)
+volatile uint32_t distance_cm = 0;
+volatile uint16_t pulse_start = 0;
+volatile uint8_t edge_count = 0;
 
-// #define DISTANCE_SAMPLES 3 // <-- Removed
-#define BT_SEND_INTERVAL 10 // Send data every 500ms (500 x 1ms loop cycles)
-
-volatile uint8_t measurement_ready = 0;   // Flag: 1 = new measurement available, 0 = processing
-volatile uint32_t distance_cm = 0;        // Latest distance measurement in cm
-volatile uint16_t pulse_start = 0;        // Timer5 count value when echo pulse started (rising edge)
-volatile uint8_t edge_count = 0;          // State tracker: 0 = waiting for rising edge
-                                          //                1 = waiting for falling edge
-
-// uint32_t distance_buffer[DISTANCE_SAMPLES] = {0}; // <-- Removed
-// uint8_t distance_index = 0; // <-- Removed
+// UART RX buffer for height commands
+volatile char rx_buffer[8];
+volatile uint8_t rx_index = 0;
+volatile uint8_t new_command = 0;
 
 // Timestamp counter (milliseconds since startup)
 volatile uint32_t system_time_ms = 0;
 
-// status info
+// System status
 typedef enum {
     STATUS_EMPTY = 0,
     STATUS_HALF_FULL,
-    STATUS_OVERFLOW_WARNING,
+    STATUS_OVERFLOW,
     STATUS_CONTAMINATED
-} SystemStatus;
+} Status_t;
 
-SystemStatus current_status = STATUS_EMPTY;
-uint8_t alert_active = 0;
+// ============================================================================
+//                         FUNCTION PROTOTYPES
+// ============================================================================
+void init_hardware(void);
+void init_adc(void);
+void init_timer5_capture(void);
+void init_uart(void);
 
-void initialise_ADC();
-void init_timer5_input_capture();
-void trigger_hcsr04();
-uint16_t read_water_sensor();
-// uint32_t get_filtered_distance(); // <-- Removed
-void control_LEDS(uint8_t red, uint8_t yellow, uint8_t green);
-void control_buzzer(uint8_t state);
+void trigger_ultrasonic(void);
+uint16_t read_water_quality(void);
 
-// Simplified Bluetooth communication functions
-void init_uart1_bluetooth();
-// MODIFIED: Send float percentage instead of uint32_t distance
-void send_bluetooth_data(float percentage, uint16_t water, const char* status, uint8_t alert, uint32_t timestamp);
+void set_leds(uint8_t red, uint8_t yellow, uint8_t green);
+void set_buzzer(uint8_t on);
 
-int main(){
-    // Port E: RED LED (PE4), YELLOW LED (PE5), BUZZER (PE3)
-    DDRE |= (1 << PE4) | (1 << PE5) | (1 << PE3);
-    
-    // Port G: GREEN LED (PG5)
-    DDRG |= (1 << PG5);
-    
-    // Port H: TRIG (PH4) output
-    DDRH |= (1 << PH4);
-    
-    // Port L: ECHO (PL1) input - Clear bit to set as input
-    DDRL &= ~(1 << PL1);
-    
-    // Port F: Water Sensor Analog (PF0) input
-    DDRF &= ~(1 << PF0);
-    
-    // LEDs are Active-Low: Set HIGH to turn OFF initially
-    PORTE |= (1 << PE4) | (1 << PE5);
-    PORTG |= (1 << PG5);
-    
-    // Buzzer is Active-Low: Set HIGH to turn OFF initially
-    PORTE |= (1 << PE3); // BUZZER OFF
-    
-    // HC-SR04 Control Pins
-    PORTH &= ~(1 << PH4); // TRIG LOW (idle state)
-        
-    initialise_ADC();
-    init_timer5_input_capture();
-    init_uart1_bluetooth();
-    
-    sei();
+void uart_send_char(char c);
+void uart_send_string(const char* str);
+void uart_send_uint(uint16_t num);
+void uart_send_ulong(uint32_t num);
+void send_status_packet(uint32_t timestamp, uint16_t percent, uint16_t water_adc, Status_t status, uint8_t alert);
 
-    // Stabilization delay
-    _delay_ms(100);
+// ============================================================================
+//                              MAIN PROGRAM
+// ============================================================================
+int main(void){
+    init_hardware();
     
-    // Used to trigger sensor measurements every 60ms
-    uint8_t measurement_cycle = 0;
-
-    // Each increment represents 1ms, so 500 = 500ms
-    uint16_t bt_send_counter = 0;
+    sei(); // Enable interrupts
+    _delay_ms(100); // Stabilization
     
-    // Current water sensor reading (0-1023 ADC value)
-    uint16_t water_level = 0;
+    uint8_t sensor_cycle = 0;
+    uint16_t bt_timer = 0;
+    uint16_t water_adc = 0;
     
     while(1){
-        if(measurement_cycle == 0){
-            water_level = read_water_sensor(); // Read water quality sensor (ADC)
-            trigger_hcsr04();                  // Start ultrasonic distance measurement
-        }
-
-        // Get the latest raw distance measurement
-        // Copy volatile variable to a local one for stable calculations
-        uint32_t distance = distance_cm;
-        
-        // --- START: Calculate Level Percentage ---
-        // D = Echo distance from sensor to water
-        float distance_cm_f = (float)distance;
-        
-        // L = Liquid level from bottom (H - D)
-        float liquid_level_cm = CONTAINER_HEIGHT_CM - distance_cm_f;
-
-        // Clamp liquid level to be between 0 and H
-        if (liquid_level_cm < 0.0f) {
-            liquid_level_cm = 0.0f;
-        }
-        // Handle cases where sensor distance is very small (e.g., dead zone)
-        if (liquid_level_cm > CONTAINER_HEIGHT_CM) {
-            liquid_level_cm = CONTAINER_HEIGHT_CM;
-        }
-
-        // Calculate percentage: (L / H) * 100
-        float level_percentage = 0.0f;
-        if (CONTAINER_HEIGHT_CM > 0.0f) { // Avoid divide-by-zero
-            level_percentage = (liquid_level_cm / CONTAINER_HEIGHT_CM) * 100.0f;
-        }
-        // --- END: Calculate Level Percentage ---
-
-        
-        // --- MODIFIED: Logic now uses level_percentage ---
-        if (water_level > WATER_CONTAMINATION_THRESHOLD) {
-            control_LEDS(0, 1, 1); // RED ON
-            control_buzzer(0);     // Buzzer ON
-            current_status = STATUS_CONTAMINATED;
-            alert_active = 1;
+        // --- Process incoming height command ---
+        if(new_command){
+            cli();
+            char cmd_local[8];
+            for(uint8_t i = 0; i < 8; i++) cmd_local[i] = rx_buffer[i];
+            new_command = 0;
+            sei();
             
-        }
-        // Check for overflow (e.g., >= 50%)
-        else if (level_percentage >= LEVEL_OVERFLOW_PERCENT_THRESHOLD) {
-            control_LEDS(1, 1, 0); // GREEN ON
-            control_buzzer(0);     // Buzzer ON
-            current_status = STATUS_OVERFLOW_WARNING;
-            alert_active = 1;
+            // Parse integer (e.g., "100" = 100cm)
+            int16_t new_height = atoi(cmd_local);
             
-        }
-        // Check for "half full" (e.g., > 5% and < 50%)
-        else if (level_percentage > LEVEL_EMPTY_PERCENT_THRESHOLD) {
-            control_LEDS(1, 0, 1); // YELLOW ON
-            control_buzzer(1);     // Buzzer OFF
-            current_status = STATUS_HALF_FULL;
-            alert_active = 0;
-            
-        }
-        // Otherwise, tank is "empty" (e.g., <= 5%)
-        else {
-            control_LEDS(1, 1, 1); // All LEDs OFF
-            control_buzzer(1);     // Buzzer OFF
-            current_status = STATUS_EMPTY;
-            alert_active = 0;
-        }
-        // --- END MODIFIED LOGIC ---
-
-        
-        bt_send_counter++; // Increment every 1ms loop cycle
-        system_time_ms++;  // Increment timestamp counter
-        
-        // When counter reaches 500, send data and reset counter
-        if(bt_send_counter >= BT_SEND_INTERVAL){
-            // Get status string based on current status
-            const char* status_string;
-            switch(current_status){
-                case STATUS_CONTAMINATED:
-                    status_string = "CONTAMINATED";
-                    break;
-                case STATUS_OVERFLOW_WARNING:
-                    status_string = "OVERFLOW";
-                    break;
-                case STATUS_HALF_FULL:
-                    status_string = "HALF_FULL";
-                    break;
-                case STATUS_EMPTY:
-                default:
-                    status_string = "EMPTY";
-                    break;
-            }
-            
-            // MODIFIED: Send level_percentage (float) instead of distance (uint32_t)
-            send_bluetooth_data(level_percentage, water_level, status_string, alert_active, system_time_ms);
-            bt_send_counter = 0;
-        }
-
-        
-        _delay_ms(1); // 1ms delay to maintain consistent loop timing
-        
-        measurement_cycle++;
+            if(new_height > 0 && new_height < 500){ // 1cm to 499cm
+                container_height_cm = (uint16_t)new_height;
                 
-        if(measurement_cycle >= 60) measurement_cycle = 0;
+                // Send confirmation: "H:100\n" means 100cm
+                uart_send_string("H:");
+                uart_send_uint(container_height_cm);
+                uart_send_char('\n');
+            }
+        }
+        
+        // --- Trigger sensors periodically ---
+        if(sensor_cycle == 0){
+            water_adc = read_water_quality();
+            trigger_ultrasonic();
+        }
+        
+        // --- Calculate percentage: (L/H) × 100 where L = H - D ---
+        // All values in cm, no conversion needed
+        uint32_t distance = distance_cm;
+        uint16_t height = container_height_cm;
+        uint32_t liquid_level_cm;
+        
+        // L = H - D
+        if(distance >= height){
+            liquid_level_cm = 0; // Empty or sensor error
+        } else {
+            liquid_level_cm = height - distance;
+        }
+        
+        // Percentage = (L / H) × 100
+        uint16_t level_percent = 0;
+        if(height > 0){
+            level_percent = (uint16_t)((liquid_level_cm * 100UL) / height);
+        }
+        
+        // Limit to 100%
+        if(level_percent > 100) level_percent = 100;
+        
+        // --- Determine status and control outputs ---
+        Status_t status;
+        uint8_t alert = 0;
+        
+        if(water_adc > WATER_CONTAMINATION_ADC){
+            status = STATUS_CONTAMINATED;
+            set_leds(1, 0, 0); // RED ON
+            set_buzzer(1);     // BUZZER ON
+            alert = 1;
+        }
+        else if(level_percent >= OVERFLOW_PERCENT){
+            status = STATUS_OVERFLOW;
+            set_leds(0, 0, 1); // GREEN ON
+            set_buzzer(1);     // BUZZER ON
+            alert = 1;
+        }
+        else if(level_percent > EMPTY_PERCENT){
+            status = STATUS_HALF_FULL;
+            set_leds(0, 1, 0); // YELLOW ON
+            set_buzzer(0);     // BUZZER OFF
+            alert = 0;
+        }
+        else {
+            status = STATUS_EMPTY;
+            set_leds(0, 0, 0); // ALL OFF
+            set_buzzer(0);
+            alert = 0;
+        }
+        
+        // --- Send Bluetooth update ---
+        bt_timer++;
+        if(bt_timer >= BT_SEND_INTERVAL_MS){
+            send_status_packet(system_time_ms, level_percent, water_adc, status, alert);
+            bt_timer = 0;
+        }
+        
+        // --- Timing ---
+        _delay_ms(1); // 1ms loop cycle
+        system_time_ms++; // Increment timestamp
+        
+        sensor_cycle++;
+        if(sensor_cycle >= SENSOR_READ_INTERVAL_MS) sensor_cycle = 0;
     }
     
-    return 0; // Never reached (infinite loop)
+    return 0;
 }
 
-
 // ============================================================================
-//                       BLUETOOTH COMMUNICATION
+//                         HARDWARE INITIALIZATION
 // ============================================================================
-
-// Initialize UART1 for Bluetooth communication at 9600 baud
-void init_uart1_bluetooth(){
-    // Calculate baud rate: UBRR = (F_CPU / (16 * BAUD)) - 1
-    // For 16MHz clock and 9600 baud: UBRR = (16000000 / (16 * 9600)) - 1 = 103
-    uint16_t ubrr_value = 103;
+void init_hardware(void){
+    // LEDs and Buzzer as outputs (Active-LOW, so set HIGH = OFF)
+    DDRE |= (1 << RED_LED) | (1 << YELLOW_LED) | (1 << BUZZER);
+    DDRG |= (1 << GREEN_LED);
+    PORTE |= (1 << RED_LED) | (1 << YELLOW_LED) | (1 << BUZZER); // OFF
+    PORTG |= (1 << GREEN_LED); // OFF
     
-    UBRR1H = (uint8_t)(ubrr_value >> 8);
-    UBRR1L = (uint8_t)ubrr_value;
+    // Ultrasonic pins
+    DDRH |= (1 << TRIG_PIN);   // Output
+    DDRL &= ~(1 << ECHO_PIN);  // Input
+    PORTH &= ~(1 << TRIG_PIN); // LOW
     
-    UCSR1C = (1 << UCSZ11) | (1 << UCSZ10); // 8 data bits, no parity, 1 stop bit
+    // Water sensor (ADC input)
+    DDRF &= ~(1 << PF0);
     
-    UCSR1B = (1 << TXEN1); // Enable transmitter
+    init_adc();
+    init_timer5_capture();
+    init_uart();
 }
 
-// MODIFIED: Function signature changed to accept float 'percentage'
-// This function builds the entire JSON message in a buffer, then sends it all at once
-void send_bluetooth_data(float percentage, uint16_t water, const char* status, uint8_t alert, uint32_t timestamp){
-    char buffer[120]; // Buffer to hold complete JSON string (increased size for timestamp)
-    
-    // --- MODIFICATION TO FIX SPRINTF WARNING ---
-    // avr-libc sprintf often doesn't support %f by default.
-    // We manually convert the float to integer and fractional parts.
-    // Example: 50.1 -> int_part = 50, frac_part = 1
-    
-    // Get the integer part (e.g., 50)
-    int int_part = (int)percentage;
-    
-    // Get the first fractional digit (e.g., (50.1 - 50) * 10 = 1)
-    // Add 0.5f for correct rounding before casting to int
-    int frac_part = (int)((percentage - (float)int_part) * 10.0f + 0.5f);
-
-    // Handle potential rollover from rounding (e.g., 50.99 -> 50.10)
-    if (frac_part >= 10) {
-        frac_part = 0;
-        int_part += 1;
-    }
-
-    // MODIFIED:
-    // - Changed format specifier from %.1f to %d.%d
-    // - Passed the integer and fractional parts
-    // Format: {"timestamp":12345,"percentage":50.1,"water":45,"status":"EMPTY","alert":0}
-    sprintf(buffer, "{\"timestamp\":%lu,\"percentage\":%d.%d,\"water\":%u,\"status\":\"%s\",\"alert\":%u}\n",
-            timestamp, int_part, frac_part, water, status, alert);
-    // --- END MODIFICATION ---
-    
-    // Send the complete string via UART
-    char* ptr = buffer;
-    while(*ptr){
-        // Wait for transmit buffer to be ready
-        while(!(UCSR1A & (1 << UDRE1)));
-        // Send character
-        UDR1 = *ptr;
-        ptr++;
-    }
+void init_adc(void){
+    ADMUX = (1 << REFS0); // AVcc reference
+    ADCSRA = (1 << ADEN) | (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0); // Prescaler 128
 }
 
-
-// ============================================================================
-//                     ULTRASONIC SENSOR (HC-SR04)
-// ============================================================================
-
-void init_timer5_input_capture(){
-    //  normal port operation
+void init_timer5_capture(void){
     TCCR5A = 0;
-    
-    
-    // CS51 = 1: Set prescaler to 8
-    // 16,000,000 / 8 = 2,000,000 ticks per second (2MHz)
-    // Each tick is 0.5 microseconds
-    TCCR5B = (1 << CS51);
-    
-    // ICIE5 = 1: Enable Input Capture Interrupt
-    TIMSK5 = (1 << ICIE5);
-    
-    
-    // TCCR5B: Input Capture Edge Select
-    // ICES5 = 1: Capture on rising edge (start of echo pulse)
-    TCCR5B |= (1 << ICES5);
-    
-
-    TCNT5 = 0;     // Clear timer counter
-    edge_count = 0; // Initialize state machine (waiting for rising edge)
+    TCCR5B = (1 << CS51); // Prescaler 8 (0.5us per tick at 16MHz)
+    TIMSK5 = (1 << ICIE5); // Enable capture interrupt
+    TCCR5B |= (1 << ICES5); // Rising edge
+    TCNT5 = 0;
+    edge_count = 0;
 }
 
-
-// Sends 10μs trigger pulse to initiate distance measurement
-void trigger_hcsr04(){
+void init_uart(void){
+    uint16_t ubrr = 103; // 9600 baud @ 16MHz
     
-    edge_count = 0;        // Reset state machine to wait for rising edge
-    measurement_ready = 0; // Clear measurement complete flag
+    UBRR1H = (uint8_t)(ubrr >> 8);
+    UBRR1L = (uint8_t)ubrr;
     
-
-    // ICF5 = 1: Clear Input Capture Flag (write 1 to clear)
-    TIFR5 = (1 << ICF5);
-    
-    
-    TCNT5 = 0;             // Reset timer counter to 0
-    TCCR5B |= (1 << ICES5); // Set to capture rising edge first
-    
-    
-    // Generate 10μs trigger pulse
-    PORTH |= (1 << PH4);  // Set TRIG HIGH
-    _delay_us(10);        // Wait 10 microseconds
-    PORTH &= ~(1 << PH4); // Set TRIG LOW
+    UCSR1C = (1 << UCSZ11) | (1 << UCSZ10); // 8N1
+    UCSR1B = (1 << TXEN1) | (1 << RXEN1) | (1 << RXCIE1); // TX, RX, RX interrupt
 }
-
-
-
-ISR(TIMER5_CAPT_vect){
-    
-    // Rising edge detected (echo pulse started)
-    if(edge_count == 0){
-        
-        pulse_start = ICR5; // Capture timer value at rising edge
-        edge_count = 1;     // Move to next state (wait for falling edge)
-        TCCR5B &= ~(1 << ICES5); // Change to capture falling edge next
-    }
-    
-    
-    // Falling edge detected (echo pulse ended)
-    else if(edge_count == 1){
-        
-        uint16_t pulse_end = ICR5; // Capture timer value at falling edge
-        uint16_t pulse_ticks;
-        
-        
-
-        // Handle timer overflow case (16-bit counter wraps at 65535)
-        if(pulse_end >= pulse_start){
-            pulse_ticks = pulse_end - pulse_start; // Normal case
-        } else {
-            pulse_ticks = (0xFFFF - pulse_start) + pulse_end + 1; // Overflow case
-        }
-        
-        // Convert timer ticks to microseconds
-        // Timer runs at 2MHz (0.5μs per tick) -> divide by 2
-        uint32_t pulse_us = (uint32_t)pulse_ticks >> 1;
-        
-        
-        // Validate pulse width (HC-SR04 valid range: 150μs to 23500μs)
-        // 23500μs / 58 = ~405cm (max range)
-        if(pulse_us >= 150 && pulse_us <= 23500){
-            
-            // Calculate distance in cm
-            // Formula: Distance (cm) = (Pulse Width (μs) / 58)
-            uint32_t new_distance = pulse_us / 58;
-            
-            // Update the raw distance variable directly
-            distance_cm = new_distance;
-        } else {
-            // Invalid pulse width (out of range)
-            distance_cm = 0;
-        }
-        
-        
-        measurement_ready = 1;     // Signal that measurement is complete
-        edge_count = 0;            // Reset state machine
-        TCCR5B |= (1 << ICES5);   // Configure for rising edge next time
-    }
-}
-
 
 // ============================================================================
-//                     WATER QUALITY SENSOR (ADC)
+//                         SENSOR FUNCTIONS
 // ============================================================================
-
-void initialise_ADC(){
-    // REFS0 = 1: Use AVCC (5V) as voltage reference
-    ADMUX = (1 << REFS0);
+void trigger_ultrasonic(void){
+    edge_count = 0;
+    TIFR5 = (1 << ICF5); // Clear flag
+    TCNT5 = 0;
+    TCCR5B |= (1 << ICES5); // Rising edge
     
-    // ADEN = 1: Enable ADC
-    // ADPS2:0 = 111: Set prescaler to 128 (ADC Clock = 16MHz / 128 = 125kHz)
-    ADCSRA = (1 << ADEN) | (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0);
+    PORTH |= (1 << TRIG_PIN);
+    _delay_us(10);
+    PORTH &= ~(1 << TRIG_PIN);
 }
 
-uint16_t read_water_sensor(){
-    // Select ADC0 channel (A0)
-    ADMUX = (ADMUX & 0xF0) | 0x00;
-    
-    // Start conversion
+uint16_t read_water_quality(void){
+    ADMUX = (ADMUX & 0xF0); // Select ADC0
     ADCSRA |= (1 << ADSC);
-    
-    // Wait for conversion to complete
-    while (ADCSRA & (1 << ADSC));
-    
-    // Return ADC value
+    while(ADCSRA & (1 << ADSC)); // Wait
     return ADC;
 }
 
-
 // ============================================================================
-//                     LED AND BUZZER CONTROL
+//                         OUTPUT CONTROL
 // ============================================================================
-
-void control_LEDS(uint8_t red, uint8_t yellow, uint8_t green){
-    // LEDs are Active-Low: 0 = ON, 1 = OFF
-    if(!red) PORTE &= ~(1 << PE4); else PORTE |= (1 << PE4);
-    if(!yellow) PORTE &= ~(1 << PE5); else PORTE |= (1 << PE5);
-    if(!green) PORTG &= ~(1 << PG5);  else PORTG |= (1 << PG5);
+void set_leds(uint8_t red, uint8_t yellow, uint8_t green){
+    // Active-LOW: 1 = turn ON
+    if(red)    PORTE &= ~(1 << RED_LED);    else PORTE |= (1 << RED_LED);
+    if(yellow) PORTE &= ~(1 << YELLOW_LED); else PORTE |= (1 << YELLOW_LED);
+    if(green)  PORTG &= ~(1 << GREEN_LED);  else PORTG |= (1 << GREEN_LED);
 }
 
-void control_buzzer(uint8_t state){
-    // Buzzer is Active-Low: 0 = ON, 1 = OFF
-    if (state) PORTE |= (1 << PE3); else  PORTE &= ~(1 << PE3);
+void set_buzzer(uint8_t on){
+    // Active-LOW: 1 = turn ON
+    if(on) PORTE &= ~(1 << BUZZER);
+    else   PORTE |= (1 << BUZZER);
 }
 
+// ============================================================================
+//                         UART FUNCTIONS
+// ============================================================================
+void uart_send_char(char c){
+    while(!(UCSR1A & (1 << UDRE1))); // Wait for buffer
+    UDR1 = c;
+}
+
+void uart_send_string(const char* str){
+    while(*str) uart_send_char(*str++);
+}
+
+void uart_send_uint(uint16_t num){
+    char buffer[6];
+    uint8_t i = 0;
+    
+    // Convert to string (reverse order)
+    do {
+        buffer[i++] = '0' + (num % 10);
+        num /= 10;
+    } while(num > 0);
+    
+    // Send in correct order
+    while(i > 0){
+        uart_send_char(buffer[--i]);
+    }
+}
+
+void uart_send_ulong(uint32_t num){
+    char buffer[11]; // Max 10 digits for uint32_t + null
+    uint8_t i = 0;
+    
+    // Convert to string (reverse order)
+    do {
+        buffer[i++] = '0' + (num % 10);
+        num /= 10;
+    } while(num > 0);
+    
+    // Send in correct order
+    while(i > 0){
+        uart_send_char(buffer[--i]);
+    }
+}
+
+void send_status_packet(uint32_t timestamp, uint16_t percent, uint16_t water_adc, Status_t status, uint8_t alert){
+    // Format: T:12345,P:50,W:123,S:2,A:1\n
+    // T = timestamp (ms), P = percentage, W = water ADC, S = status code, A = alert
+    
+    uart_send_string("T:");
+    uart_send_ulong(timestamp);
+    uart_send_string(",P:");
+    uart_send_uint(percent);
+    uart_send_string(",W:");
+    uart_send_uint(water_adc);
+    uart_send_string(",S:");
+    uart_send_char('0' + status);
+    uart_send_string(",A:");
+    uart_send_char('0' + alert);
+    uart_send_char('\n');
+}
+
+// ============================================================================
+//                         INTERRUPT HANDLERS
+// ============================================================================
+ISR(TIMER5_CAPT_vect){
+    if(edge_count == 0){
+        pulse_start = ICR5;
+        edge_count = 1;
+        TCCR5B &= ~(1 << ICES5); // Falling edge next
+    }
+    else {
+        uint16_t pulse_end = ICR5;
+        uint16_t pulse_ticks;
+        
+        if(pulse_end >= pulse_start){
+            pulse_ticks = pulse_end - pulse_start;
+        } else {
+            pulse_ticks = (0xFFFF - pulse_start) + pulse_end + 1;
+        }
+        
+        uint32_t pulse_us = (uint32_t)pulse_ticks >> 1; // Convert to microseconds
+        
+        if(pulse_us >= 150 && pulse_us <= 23500){
+            distance_cm = pulse_us / 58; // Result in cm
+        } else {
+            distance_cm = 0;
+        }
+        
+        edge_count = 0;
+        TCCR5B |= (1 << ICES5); // Rising edge next
+    }
+}
+
+ISR(USART1_RX_vect){
+    char c = UDR1;
+    
+    // End of command (newline or carriage return)
+    if(c == '\n' || c == '\r'){
+        if(rx_index > 0){
+            rx_buffer[rx_index] = '\0';
+            new_command = 1;
+            rx_index = 0;
+        }
+    }
+    // Valid characters (digits only for integer input)
+    else if(c >= '0' && c <= '9'){
+        if(rx_index < sizeof(rx_buffer) - 1){
+            rx_buffer[rx_index++] = c;
+        } else {
+            rx_index = 0; // Buffer overflow, reset
+        }
+    }
+}
