@@ -664,7 +664,7 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
   String _getStatusText() {
     switch (status) {
       case 'CONTAMINATED':
-        return 'Water Contaminated!';
+        return 'Water Contamination!';
       case 'OVERFLOW':
         return 'Overflow Warning';
       case 'HALF_FULL':
@@ -917,7 +917,7 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
           icon: Icons.height_rounded,
           iconColor: distanceColor,
           title: 'Water Level',
-          value: isLevelValid ? '${percentage.toStringAsFixed(1)} %' : 'N/A',
+          value: isLevelValid ? '${percentage.toStringAsFixed(1)} %' : '0%',
           valueColor: distanceColor,
           description: _getDistanceDescription(),
         ),
@@ -926,8 +926,8 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
         _buildSensorTile(
           icon: qualityIcon,
           iconColor: qualityColor,
-          title: 'Water Quality',
-          value: '$waterQuality / 1023',
+          title: 'Impurity',
+          value: '${(waterQuality * 100 / 1023).toStringAsFixed(1)} %',
           valueColor: qualityColor,
           description: isContaminated ? 'Contaminated' : 'Clean',
         ),
@@ -1023,4 +1023,3 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
     );
   }
 }
-
