@@ -556,8 +556,8 @@ class _LogsScreenState extends State<LogsScreen> {
           const SizedBox(height: 8),
           _buildDetailRow(
             Icons.opacity_rounded,
-            'Water Quality',
-            '${reading.waterQuality} / 1023',
+            'Water contamination liquid',
+            '${(reading.waterQuality.toDouble() / 1023.0 * 100).toStringAsFixed(1)}%',
             reading.waterQuality > 100 ? _dangerColor : _successColor,
           ),
           const SizedBox(height: 8),
