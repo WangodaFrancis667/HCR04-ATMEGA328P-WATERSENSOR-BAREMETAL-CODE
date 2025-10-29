@@ -14,6 +14,8 @@ class _LogsScreenState extends State<LogsScreen> {
   // ============================================================================
   //                        THEME COLORS (Classic Water Blue)
   // ============================================================================
+  static const Color _primaryBlue = Color(0xFF0D47A1); // Used for Filling
+  static const Color _primaryGreen = Color(0xFF388E3C); // Used for Past Halfway
   static const Color _primaryColor = Color(0xFF3D52A0);
   static const Color _accentColor = Color(0xFF7091E6);
   static const Color _secondaryColor = Color(0xFF8697C4);
@@ -229,24 +231,70 @@ class _LogsScreenState extends State<LogsScreen> {
   }
 
   // ============================================================================
-  //                        UI HELPERS
+  //                        UI HELPERS (Modified)
   // ============================================================================
+  
+  // NOTE: These three methods now use the reading's percentage for rich display.
 
-  void _showSnackBar(String message, Color backgroundColor) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: backgroundColor,
-        duration: const Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10.0),
-        ),
-      ),
-    );
+  String _getRichStatusText(double percentage, String mcuStatus) {
+    if (mcuStatus == 'CONTAMINATED') {
+      return 'Water Contamination!';
+    }
+    
+    // Use percentage for descriptive text (Logic mirrors SensorDataScreen)
+    if (percentage >= 80.0) {
+      return 'Overflow Warning';
+    } else if (percentage > 50.5) {
+      return 'Past Halfway: Filling Well';
+    } else if (percentage >= 49.5) {
+      return 'Tank is Half Full';
+    } else if (percentage > 5.0) {
+      return 'Tank is Filling Up';
+    } else {
+      return 'Tank is Empty';
+    }
   }
 
+  Color _getRichStatusColor(double percentage, String mcuStatus) {
+    if (mcuStatus == 'CONTAMINATED') {
+      return _dangerColor;
+    }
+    
+    // Use percentage for fine-grained color (Logic mirrors SensorDataScreen)
+    if (percentage >= 80.0) {
+      return _warningColor; // Overflow
+    } else if (percentage > 50.5) {
+      return _primaryGreen; // Past Halfway
+    } else if (percentage >= 49.5) {
+      return Colors.blue[600]!; // Half Full
+    } else if (percentage > 5.0) {
+      return _primaryBlue; // Filling
+    } else {
+      return _neutralColor; // Empty
+    }
+  }
+
+  IconData _getRichStatusIcon(double percentage, String mcuStatus) {
+    if (mcuStatus == 'CONTAMINATED') {
+      return Icons.warning_amber_rounded;
+    }
+
+    // Use percentage for level-based icons (Logic mirrors SensorDataScreen)
+    if (percentage >= 80.0) {
+      return Icons.water_drop_rounded; // Overflow
+    } else if (percentage > 50.5) {
+      return Icons.arrow_circle_up_rounded; // Past Half Way
+    } else if (percentage >= 49.5) {
+      return Icons.waves_rounded; // Half Full
+    } else if (percentage > 5.0) {
+      return Icons.water_outlined; // Filling
+    } else {
+      return Icons.delete_outline_rounded; // Empty Tank
+    }
+  }
+
+  // NOTE: This is the old simple color method, used only for the filter chips.
+  // It only looks at the simple MCU status string.
   Color _getStatusColor(String status) {
     switch (status) {
       case 'CONTAMINATED':
@@ -445,7 +493,8 @@ class _LogsScreenState extends State<LogsScreen> {
 
   Widget _buildFilterChip(String status, IconData icon) {
     final isSelected = _filterStatus == status;
-    final color = isSelected ? _getStatusColor(status) : _neutralColor;
+    // Use simple status color for filter chips to match MCU status strings
+    final color = isSelected ? _getStatusColor(status) : _neutralColor; 
 
     return FilterChip(
       label: Text(status.replaceAll('_', ' ')),
@@ -510,7 +559,11 @@ class _LogsScreenState extends State<LogsScreen> {
   }
 
   Widget _buildReadingCard(SensorReading reading) {
-    final statusColor = _getStatusColor(reading.status);
+    // Use the rich display logic for the card visuals
+    final percent = reading.percentage ?? 0.0;
+    final statusColor = _getRichStatusColor(percent, reading.status);
+    final statusText = _getRichStatusText(percent, reading.status);
+    final statusIcon = _getRichStatusIcon(percent, reading.status);
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -530,10 +583,10 @@ class _LogsScreenState extends State<LogsScreen> {
             color: statusColor.withOpacity(0.15),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: Icon(_getStatusIcon(reading.status), color: statusColor),
+          child: Icon(statusIcon, color: statusColor),
         ),
         title: Text(
-          reading.status.replaceAll('_', ' '),
+          statusText, // Display the rich description
           style: TextStyle(fontWeight: FontWeight.bold, color: statusColor),
         ),
         subtitle: Text(
@@ -548,15 +601,22 @@ class _LogsScreenState extends State<LogsScreen> {
           const Divider(),
           const SizedBox(height: 8),
           _buildDetailRow(
+            Icons.percent_rounded, // New icon for percentage
+            'Petrol Level',
+            '${reading.percentage?.toStringAsFixed(1) ?? 'N/A'} %',
+            _getRichStatusColor(reading.percentage ?? 0.0, reading.status),
+          ),
+          const SizedBox(height: 8),
+          _buildDetailRow(
             Icons.height_rounded,
-            'Distance',
+            'Distance (Top)',
             '${reading.distance} cm',
-            _accentColor,
+            _secondaryColor, // Keep distance detail color neutral
           ),
           const SizedBox(height: 8),
           _buildDetailRow(
             Icons.opacity_rounded,
-            'Water contamination liquid',
+            'Water Contamination percentage',
             '${(reading.waterQuality.toDouble() / 1023.0 * 100).toStringAsFixed(1)}%',
             reading.waterQuality > 100 ? _dangerColor : _successColor,
           ),
@@ -564,7 +624,7 @@ class _LogsScreenState extends State<LogsScreen> {
           _buildDetailRow(
             Icons.timer_outlined,
             'Arduino Uptime',
-            reading.toJson()['Arduino Uptime'], // Assumes this key exists
+            reading.toJson()['Arduino Uptime'], 
             _secondaryColor,
           ),
           const SizedBox(height: 8),
@@ -698,6 +758,12 @@ class _LogsScreenState extends State<LogsScreen> {
               ),
               const Divider(),
               _buildStatRow(
+                'Average Percentage',
+                '${(_statistics['averagePercentage'] ?? 0).toStringAsFixed(1)} %',
+                Icons.percent_rounded,
+              ),
+              const Divider(),
+              _buildStatRow(
                 'Alert Count',
                 '${_statistics['alertCount'] ?? 0}',
                 Icons.notification_important_rounded,
@@ -773,7 +839,7 @@ class _LogsScreenState extends State<LogsScreen> {
       ];
     }
     return breakdown.entries.map((entry) {
-      final color = _getStatusColor(entry.key);
+      final color = _getStatusColor(entry.key); // Use simple status color here
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: Row(
@@ -794,5 +860,16 @@ class _LogsScreenState extends State<LogsScreen> {
         ),
       );
     }).toList();
+  }
+
+  void _showSnackBar(String message, Color backgroundColor) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: backgroundColor,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 }
