@@ -3,9 +3,7 @@
 #include <util/delay.h>
 #include <stdlib.h> // For atoi only
 
-// ============================================================================
-//                            PIN DEFINITIONS
-// ============================================================================
+// PIN DEFINITIONS
 #define TRIG_PIN        PH4     // Ultrasonic trigger
 #define ECHO_PIN        PL1     // Ultrasonic echo (ICP5)
 
@@ -17,20 +15,15 @@
 
 #define WATER_PIN      PF0
 
-// ============================================================================
-//                            THRESHOLDS
-// ============================================================================
+// THRESHOLDS
 #define WATER_CONTAMINATION_ADC     100     // ADC threshold for dirty water
-#define OVERFLOW_PERCENT            90      // Alert when ≥50% full
+#define OVERFLOW_PERCENT            80      // Alert when ≥80% full
 #define EMPTY_PERCENT               5       // Consider empty when ≤5%
 
 #define BT_SEND_INTERVAL_MS         500     // Bluetooth update rate
 #define SENSOR_READ_INTERVAL_MS     60      // Ultrasonic measurement rate
 
-// ============================================================================
-//                         GLOBAL VARIABLES
-// ============================================================================
-// Container height in cm (e.g., 10 = 10cm, 100 = 100cm)
+//  GLOBAL VARIABLES
 volatile uint16_t container_height_cm = 10;  // Default: 10cm
 
 // Ultrasonic sensor state (distance in cm)
@@ -54,9 +47,8 @@ typedef enum {
     STATUS_CONTAMINATED
 } Status_t;
 
-// ============================================================================
-//                         FUNCTION PROTOTYPES
-// ============================================================================
+
+// FUNCTION PROTOTYPES
 void init_adc(void);
 void init_timer5_capture(void);
 void init_uart(void);
@@ -73,21 +65,20 @@ void uart_send_uint(uint16_t num);
 void uart_send_ulong(uint32_t num);
 void send_status_packet(uint32_t timestamp, uint16_t percent, uint16_t water_adc, Status_t status, uint8_t alert);
 
-// ============================================================================
-//                              MAIN PROGRAM
-// ============================================================================
+// MAIN PROGRAM
 int main(void){
     // LEDs and Buzzer as outputs (Active-LOW, so set HIGH = OFF)
     DDRE |= (1 << RED_LED) | (1 << YELLOW_LED) | (1 << BUZZER);
     DDRG |= (1 << BLUE_LED);
+
     // Set ALL output pins HIGH (Logic 1) for initial OFF state (Active-Low)
     PORTE |= (1 << RED_LED) | (1 << YELLOW_LED) | (1 << BUZZER); 
     PORTG |= (1 << BLUE_LED); 
     
     // Ultrasonic pins
-    DDRH |= (1 << TRIG_PIN);   // Output
-    DDRL &= ~(1 << ECHO_PIN);  // Input
-    PORTH &= ~(1 << TRIG_PIN); // LOW
+    DDRH |= (1 << TRIG_PIN);   
+    DDRL &= ~(1 << ECHO_PIN);  
+    PORTH &= ~(1 << TRIG_PIN); 
     
     // Water sensor (ADC input)
     DDRF &= ~(1 << WATER_PIN);
@@ -159,30 +150,30 @@ int main(void){
         
         if(water_adc > WATER_CONTAMINATION_ADC){
             status = STATUS_CONTAMINATED;
-            set_leds(0, 1, 1); // RED ON (changed from 0, 1, 1)
-            set_buzzer(1);     // BUZZER ON (changed from 0)
+            set_leds(0, 1, 1); // RED ON 
+            set_buzzer(0);     // BUZZER ON
             alert = 1;
         }
 
         // Overflow
         else if(level_percent >= OVERFLOW_PERCENT){
             status = STATUS_OVERFLOW;
-            set_leds(1, 1, 0); // GREEN ON (changed from 1, 0, 1)
-            set_buzzer(0);     // BUZZER ON (changed from 0)
+            set_leds(1, 1, 0); // BLUE ON 
+            set_buzzer(0);     // BUZZER ON 
             alert = 1;
         }
 
         // Halfway
-        else if(level_percent > 49 && level_percent < 51){
+        else if(level_percent > 50 ){
             status = STATUS_HALF_FULL;
-            set_leds(1, 0, 1); // YELLOW ON (changed from 1, 1, 0)
-            set_buzzer(1);     // BUZZER OFF (changed from 1)
+            set_leds(1, 0, 1); // YELLOW ON 
+            set_buzzer(1);     // BUZZER OFF 
             alert = 0;
         }
         else {
             status = STATUS_EMPTY;
-            set_leds(1, 1, 1); // ALL OFF (changed from 1, 1, 1)
-            set_buzzer(1);     // BUZZER OFF (changed from 1)
+            set_leds(1, 1, 1); // ALL OFF 
+            set_buzzer(1);     // BUZZER OFF 
             alert = 0;
         }
         
@@ -228,9 +219,8 @@ void init_uart(void){
     UCSR1B = (1 << TXEN1) | (1 << RXEN1) | (1 << RXCIE1); // TX, RX, RX interrupt
 }
 
-// ============================================================================
-//                         SENSOR FUNCTIONS
-// ============================================================================
+
+//  SENSOR FUNCTIONS
 void trigger_ultrasonic(void){
     edge_count = 0;
     TIFR5 = (1 << ICF5); // Clear flag
@@ -249,9 +239,7 @@ uint16_t read_water_conductivity(void){
     return ADC;
 }
 
-// ============================================================================
-//                         OUTPUT CONTROL
-// ============================================================================
+// OUTPUT CONTROL
 void set_leds(uint8_t red, uint8_t yellow, uint8_t green){
     if(!red) PORTE &= ~(1 << RED_LED);    else PORTE |= (1 << RED_LED);
     if(!yellow) PORTE &= ~(1 << YELLOW_LED); else PORTE |= (1 << YELLOW_LED);
@@ -263,9 +251,7 @@ void set_buzzer(uint8_t on){
     else   PORTE &= ~(1 << BUZZER); 
 }
 
-// ============================================================================
-//                         UART FUNCTIONS
-// ============================================================================
+// UART FUNCTIONS
 void uart_send_char(char c){
     while(!(UCSR1A & (1 << UDRE1))); // Wait for buffer
     UDR1 = c;
@@ -310,7 +296,6 @@ void uart_send_ulong(uint32_t num){
 void send_status_packet(uint32_t timestamp, uint16_t percent, uint16_t water_adc, Status_t status, uint8_t alert){
     // Format: T:12345,P:50,W:123,S:2,A:1\n
     // T = timestamp (ms), P = percentage, W = water ADC, S = status code, A = alert
-    
     uart_send_string("T:");
     uart_send_ulong(timestamp);
     uart_send_string(",P:");
@@ -324,9 +309,7 @@ void send_status_packet(uint32_t timestamp, uint16_t percent, uint16_t water_adc
     uart_send_char('\n');
 }
 
-// ============================================================================
-//                         INTERRUPT HANDLERS
-// ============================================================================
+//  NTERRUPT HANDLERS
 ISR(TIMER5_CAPT_vect){
     if(edge_count == 0){
         pulse_start = ICR5;
