@@ -30,6 +30,7 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
   //                        THEME COLORS
   // ============================================================================
   static const Color _primaryBlue = Color(0xFF0D47A1); // A deep, classic blue
+  static const Color _primaryGreen = Color(0xFF388E3C); // Dark Green for Filling Progress
   static const Color _lightBlueBackground = Color(
     0xFFE3F2FD,
   ); // Very light blue
@@ -631,57 +632,105 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
       },
     );
   }
+  
+  // ====================================================================
+  // >>> MODIFIED UI STATUS METHODS <<<
+  // ====================================================================
 
-  // Updated to use the blue theme for default states
+  // Helper function to determine the color of the Main Status Card
   Color _getStatusColor() {
-    switch (status) {
-      case 'CONTAMINATED':
-        return Colors.red[700]!;
-      case 'OVERFLOW':
-        return Colors.orange[700]!;
-      case 'HALF_FULL':
-        return Colors.blue[600]!; // A slightly lighter blue for "half"
-      case 'EMPTY':
-      default:
-        return _primaryBlue; // Default "all clear" state is blue
+    // If Contaminated (highest priority from MCU status)
+    if (status == 'CONTAMINATED') {
+      return Colors.red[700]!;
+    }
+
+    // Use percentage for finer level status (Thresholds: 5%, 50%, 80%)
+    if (percentage >= 80.0) {
+      return Colors.orange[700]!; // Overflow Warning Color
+    } else if (percentage > 50.5) {
+      return _primaryGreen; // Past Half Way Color (Green for good progress)
+    } else if (percentage >= 49.5) {
+      return Colors.blue[600]!; // Half Full Color
+    } else if (percentage > 5.0) {
+      return _primaryBlue; // Filling Color (Standard Blue)
+    } else {
+      // EMPTY or 0%
+      return _secondaryText; // Grey for Empty/Inactive
     }
   }
 
+  // Helper function to determine the icon of the Main Status Card
   IconData _getStatusIcon() {
-    switch (status) {
-      case 'CONTAMINATED':
-        return Icons.warning_amber_rounded;
-      case 'OVERFLOW':
-        return Icons.water_drop_rounded;
-      case 'HALF_FULL':
-        return Icons.waves_rounded;
-      case 'EMPTY':
-      default:
-        return Icons.check_circle_outline_rounded; // "Empty" is an OK state
+    if (status == 'CONTAMINATED') {
+      return Icons.warning_amber_rounded;
+    }
+
+    // Use percentage for level-based icons
+    if (percentage >= 80.0) {
+      return Icons.water_drop_rounded; // Overflow
+    } else if (percentage > 50.5) {
+      return Icons.arrow_circle_up_rounded; // Past Half Way
+    } else if (percentage >= 49.5) {
+      return Icons.waves_rounded; // Half Full
+    } else if (percentage > 5.0) {
+      return Icons.water_outlined; // Filling
+    } else {
+      return Icons.delete_outline_rounded; // Empty Tank
     }
   }
 
+  // Helper function to determine the main text of the Main Status Card
   String _getStatusText() {
-    switch (status) {
-      case 'CONTAMINATED':
-        return 'Water Contamination!';
-      case 'OVERFLOW':
-        return 'Overflow Warning';
-      case 'HALF_FULL':
-        return 'Tank Half Full';
-      case 'EMPTY':
-      default:
-        return 'Tank Empty';
+    if (status == 'CONTAMINATED') {
+      return 'Water Contamination!';
+    }
+    
+    // Use percentage for descriptive text
+    if (percentage >= 80.0) {
+      return 'CRITICAL: Overflow Warning!';
+    } else if (percentage > 50.5) {
+      return 'Past Halfway: Filling Well';
+    } else if (percentage >= 49.5) {
+      return 'Tank is Half Full';
+    } else if (percentage > 5.0) {
+      return 'Tank is Filling Up';
+    } else {
+      return 'Tank is Empty';
     }
   }
 
+  // Helper function to determine the distance description in the sensor tile
   String _getDistanceDescription() {
-    // Prefer percentage-driven descriptions when available
+    // Check if data is available
     if (percentage <= 0.0) return 'No reading';
-    if (percentage >= 50.0) return 'Near overflow!';
-    if (percentage > 5.0) return 'Half full';
-    return 'Low water level';
+
+    // 1. Overflow Warning (80% or more)
+    if (percentage >= 80.0) {
+      return 'DANGER: Overflow Warning!'; 
+    }
+    
+    // 2. Past Half Way (50% to 80%)
+    if (percentage > 50.5) {
+      return 'Past Half Way - Petrol Refilling';
+    }
+    
+    // 3. Half Way (Exactly 50% or very close)
+    if (percentage >= 49.5 && percentage <= 50.5) {
+      return 'Tank Half Full';
+    }
+    
+    // 4. Filling (Above 5% but less than 50%)
+    if (percentage > 5.0) {
+      return 'Tank is Filling Up';
+    }
+    
+    // 5. Low Water (0% to 5%)
+    return 'Low Petrol Level'; 
   }
+  // ====================================================================
+  // >>> END OF MODIFIED UI STATUS METHODS <<<
+  // ====================================================================
+
 
   String _getTimestampDisplay() {
     if (timestamp == 0) return 'Waiting for data...';
@@ -703,7 +752,7 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
     return Scaffold(
       backgroundColor: _lightBlueBackground,
       appBar: AppBar(
-        title: const Text('💧 Water Tank Monitor'),
+        title: const Text('Petrol Tank Monitor'),
         backgroundColor: _getStatusColor(), // AppBar color reflects status
         foregroundColor: Colors.white,
         elevation: 4.0,
@@ -912,11 +961,11 @@ class _SensorDataScreenState extends State<SensorDataScreen> {
       childAspectRatio: 0.85,
 
       children: [
-        // Water Level Tile (shows percentage)
+        // Petrol Level Tile (shows percentage)
         _buildSensorTile(
           icon: Icons.height_rounded,
           iconColor: distanceColor,
-          title: 'Water Level',
+          title: 'Petrol Level',
           value: isLevelValid ? '${percentage.toStringAsFixed(1)} %' : '0%',
           valueColor: distanceColor,
           description: _getDistanceDescription(),
