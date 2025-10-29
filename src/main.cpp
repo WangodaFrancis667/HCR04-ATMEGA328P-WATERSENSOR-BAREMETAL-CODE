@@ -11,15 +11,17 @@
 
 #define RED_LED         PE4     // Contamination indicator
 #define YELLOW_LED      PE5     // Half-full indicator  
-#define GREEN_LED       PG5     // Overflow warning
+#define BLUE_LED       PG5     // Overflow warning
 
 #define BUZZER          PE3     // Active-low buzzer
+
+#define WATER_PIN      PF0
 
 // ============================================================================
 //                            THRESHOLDS
 // ============================================================================
 #define WATER_CONTAMINATION_ADC     100     // ADC threshold for dirty water
-#define OVERFLOW_PERCENT            50      // Alert when ≥50% full
+#define OVERFLOW_PERCENT            90      // Alert when ≥50% full
 #define EMPTY_PERCENT               5       // Consider empty when ≤5%
 
 #define BT_SEND_INTERVAL_MS         500     // Bluetooth update rate
@@ -55,13 +57,12 @@ typedef enum {
 // ============================================================================
 //                         FUNCTION PROTOTYPES
 // ============================================================================
-void init_hardware(void);
 void init_adc(void);
 void init_timer5_capture(void);
 void init_uart(void);
 
 void trigger_ultrasonic(void);
-uint16_t read_water_quality(void);
+uint16_t read_water_conductivity(void);
 
 void set_leds(uint8_t red, uint8_t yellow, uint8_t green);
 void set_buzzer(uint8_t on);
@@ -76,7 +77,24 @@ void send_status_packet(uint32_t timestamp, uint16_t percent, uint16_t water_adc
 //                              MAIN PROGRAM
 // ============================================================================
 int main(void){
-    init_hardware();
+    // LEDs and Buzzer as outputs (Active-LOW, so set HIGH = OFF)
+    DDRE |= (1 << RED_LED) | (1 << YELLOW_LED) | (1 << BUZZER);
+    DDRG |= (1 << BLUE_LED);
+    // Set ALL output pins HIGH (Logic 1) for initial OFF state (Active-Low)
+    PORTE |= (1 << RED_LED) | (1 << YELLOW_LED) | (1 << BUZZER); 
+    PORTG |= (1 << BLUE_LED); 
+    
+    // Ultrasonic pins
+    DDRH |= (1 << TRIG_PIN);   // Output
+    DDRL &= ~(1 << ECHO_PIN);  // Input
+    PORTH &= ~(1 << TRIG_PIN); // LOW
+    
+    // Water sensor (ADC input)
+    DDRF &= ~(1 << WATER_PIN);
+    
+    init_adc();
+    init_timer5_capture();
+    init_uart();
     
     sei(); // Enable interrupts
     _delay_ms(100); // Stabilization
@@ -109,7 +127,7 @@ int main(void){
         
         // --- Trigger sensors periodically ---
         if(sensor_cycle == 0){
-            water_adc = read_water_quality();
+            water_adc = read_water_conductivity();
             trigger_ultrasonic();
         }
         
@@ -141,26 +159,30 @@ int main(void){
         
         if(water_adc > WATER_CONTAMINATION_ADC){
             status = STATUS_CONTAMINATED;
-            set_leds(1, 0, 0); // RED ON
-            set_buzzer(1);     // BUZZER ON
+            set_leds(0, 1, 1); // RED ON (changed from 0, 1, 1)
+            set_buzzer(1);     // BUZZER ON (changed from 0)
             alert = 1;
         }
+
+        // Overflow
         else if(level_percent >= OVERFLOW_PERCENT){
             status = STATUS_OVERFLOW;
-            set_leds(0, 0, 1); // GREEN ON
-            set_buzzer(1);     // BUZZER ON
+            set_leds(1, 1, 0); // GREEN ON (changed from 1, 0, 1)
+            set_buzzer(0);     // BUZZER ON (changed from 0)
             alert = 1;
         }
-        else if(level_percent > EMPTY_PERCENT){
+
+        // Halfway
+        else if(level_percent > 49 && level_percent < 51){
             status = STATUS_HALF_FULL;
-            set_leds(0, 1, 0); // YELLOW ON
-            set_buzzer(0);     // BUZZER OFF
+            set_leds(1, 0, 1); // YELLOW ON (changed from 1, 1, 0)
+            set_buzzer(1);     // BUZZER OFF (changed from 1)
             alert = 0;
         }
         else {
             status = STATUS_EMPTY;
-            set_leds(0, 0, 0); // ALL OFF
-            set_buzzer(0);
+            set_leds(1, 1, 1); // ALL OFF (changed from 1, 1, 1)
+            set_buzzer(1);     // BUZZER OFF (changed from 1)
             alert = 0;
         }
         
@@ -180,29 +202,6 @@ int main(void){
     }
     
     return 0;
-}
-
-// ============================================================================
-//                         HARDWARE INITIALIZATION
-// ============================================================================
-void init_hardware(void){
-    // LEDs and Buzzer as outputs (Active-LOW, so set HIGH = OFF)
-    DDRE |= (1 << RED_LED) | (1 << YELLOW_LED) | (1 << BUZZER);
-    DDRG |= (1 << GREEN_LED);
-    PORTE |= (1 << RED_LED) | (1 << YELLOW_LED) | (1 << BUZZER); // OFF
-    PORTG |= (1 << GREEN_LED); // OFF
-    
-    // Ultrasonic pins
-    DDRH |= (1 << TRIG_PIN);   // Output
-    DDRL &= ~(1 << ECHO_PIN);  // Input
-    PORTH &= ~(1 << TRIG_PIN); // LOW
-    
-    // Water sensor (ADC input)
-    DDRF &= ~(1 << PF0);
-    
-    init_adc();
-    init_timer5_capture();
-    init_uart();
 }
 
 void init_adc(void){
@@ -243,7 +242,7 @@ void trigger_ultrasonic(void){
     PORTH &= ~(1 << TRIG_PIN);
 }
 
-uint16_t read_water_quality(void){
+uint16_t read_water_conductivity(void){
     ADMUX = (ADMUX & 0xF0); // Select ADC0
     ADCSRA |= (1 << ADSC);
     while(ADCSRA & (1 << ADSC)); // Wait
@@ -254,16 +253,14 @@ uint16_t read_water_quality(void){
 //                         OUTPUT CONTROL
 // ============================================================================
 void set_leds(uint8_t red, uint8_t yellow, uint8_t green){
-    // Active-LOW: 1 = turn ON
-    if(red)    PORTE &= ~(1 << RED_LED);    else PORTE |= (1 << RED_LED);
-    if(yellow) PORTE &= ~(1 << YELLOW_LED); else PORTE |= (1 << YELLOW_LED);
-    if(green)  PORTG &= ~(1 << GREEN_LED);  else PORTG |= (1 << GREEN_LED);
+    if(!red) PORTE &= ~(1 << RED_LED);    else PORTE |= (1 << RED_LED);
+    if(!yellow) PORTE &= ~(1 << YELLOW_LED); else PORTE |= (1 << YELLOW_LED);
+    if(!green)  PORTG &= ~(1 << BLUE_LED);  else PORTG |= (1 << BLUE_LED);
 }
 
 void set_buzzer(uint8_t on){
-    // Active-LOW: 1 = turn ON
-    if(on) PORTE &= ~(1 << BUZZER);
-    else   PORTE |= (1 << BUZZER);
+    if(on) PORTE |= (1 << BUZZER); 
+    else   PORTE &= ~(1 << BUZZER); 
 }
 
 // ============================================================================
