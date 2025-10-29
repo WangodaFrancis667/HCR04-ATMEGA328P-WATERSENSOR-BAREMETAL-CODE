@@ -186,7 +186,7 @@ class _BluetoothConnectionScreenState extends State<BluetoothConnectionScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('💧 Connect to Water Tank'),
+        title: const Text('Connect to Petrol Tank System'),
         backgroundColor: Theme.of(context).colorScheme.primary,
         foregroundColor: Theme.of(context).colorScheme.onPrimary,
         actions: [
