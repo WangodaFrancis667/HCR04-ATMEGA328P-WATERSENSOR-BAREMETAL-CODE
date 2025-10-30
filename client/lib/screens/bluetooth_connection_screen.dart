@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 // We don't need to import SensorDataScreen here anymore
-// import 'sensor_data_screen.dart'; 
+// import 'sensor_data_screen.dart';
 
 class BluetoothConnectionScreen extends StatefulWidget {
   // 1. Accept the callback
@@ -85,8 +85,12 @@ class _BluetoothConnectionScreenState extends State<BluetoothConnectionScreen> {
         statusMessage = 'Loading paired devices...';
       });
 
-      List<BluetoothDevice> bondedDevices =
-          await FlutterBluetoothSerial.instance.getBondedDevices();
+      // Bluetooth runtime permissions are requested in the Android native side
+      // (MainActivity) for Android 12+ to avoid needing the permission_handler plugin.
+
+      List<BluetoothDevice> bondedDevices = await FlutterBluetoothSerial
+          .instance
+          .getBondedDevices();
 
       setState(() {
         devices = bondedDevices;
@@ -123,8 +127,9 @@ class _BluetoothConnectionScreenState extends State<BluetoothConnectionScreen> {
       debugPrint('Device address: ${device.address}');
 
       // Connect to the HC-05 module
-      BluetoothConnection connection =
-          await BluetoothConnection.toAddress(device.address);
+      BluetoothConnection connection = await BluetoothConnection.toAddress(
+        device.address,
+      );
 
       debugPrint('Connected successfully!');
 
@@ -156,7 +161,6 @@ class _BluetoothConnectionScreenState extends State<BluetoothConnectionScreen> {
       //     ),
       //   ),
       // );
-
     } catch (e) {
       debugPrint('Connection failed: $e');
 
@@ -210,7 +214,9 @@ class _BluetoothConnectionScreenState extends State<BluetoothConnectionScreen> {
                     ? Icons.bluetooth_searching
                     : Icons.bluetooth_disabled,
                 size: 100,
-                color: isBluetoothEnabled ? Theme.of(context).colorScheme.primary : Colors.grey,
+                color: isBluetoothEnabled
+                    ? Theme.of(context).colorScheme.primary
+                    : Colors.grey,
               ),
 
               const SizedBox(height: 20),
@@ -231,10 +237,7 @@ class _BluetoothConnectionScreenState extends State<BluetoothConnectionScreen> {
               // Status Message
               Text(
                 statusMessage,
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey,
-                ),
+                style: const TextStyle(fontSize: 14, color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
 
@@ -291,18 +294,21 @@ class _BluetoothConnectionScreenState extends State<BluetoothConnectionScreen> {
                         final deviceName = device.name ?? 'Unnamed Device';
                         final isHC05 =
                             deviceName.toUpperCase().contains('HC') ||
-                                deviceName.toUpperCase().contains('BLUETOOTH');
+                            deviceName.toUpperCase().contains('BLUETOOTH');
 
                         return ListTile(
                           leading: Icon(
                             Icons.bluetooth,
-                            color: isHC05 ? Theme.of(context).colorScheme.primary : Colors.grey,
+                            color: isHC05
+                                ? Theme.of(context).colorScheme.primary
+                                : Colors.grey,
                           ),
                           title: Text(
                             deviceName,
                             style: TextStyle(
-                              fontWeight:
-                                  isHC05 ? FontWeight.bold : FontWeight.normal,
+                              fontWeight: isHC05
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
                             ),
                           ),
                           subtitle: Text(
@@ -312,8 +318,9 @@ class _BluetoothConnectionScreenState extends State<BluetoothConnectionScreen> {
                           trailing: ElevatedButton(
                             onPressed: () => _connectToDevice(device),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor:
-                                  isHC05 ? Colors.green : Theme.of(context).colorScheme.primary,
+                              backgroundColor: isHC05
+                                  ? Colors.green
+                                  : Theme.of(context).colorScheme.primary,
                               foregroundColor: Colors.white,
                             ),
                             child: const Text('Connect'),
