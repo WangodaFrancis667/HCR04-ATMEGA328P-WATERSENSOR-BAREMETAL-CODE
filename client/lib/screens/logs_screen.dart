@@ -752,7 +752,7 @@ class _LogsScreenState extends State<LogsScreen> {
               ),
               const Divider(),
               _buildStatRow(
-                'Average Water Quality',
+                'Average Petrol Quality',
                 '${(_statistics['averageWaterQuality'] ?? 0).toStringAsFixed(1)}',
                 Icons.opacity_rounded,
               ),
