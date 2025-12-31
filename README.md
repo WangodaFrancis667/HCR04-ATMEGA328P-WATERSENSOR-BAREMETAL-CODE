@@ -136,10 +136,6 @@ The system operates in four distinct operational modes based on sensor readings,
 - **Indicators**: Yellow LED ON
 - **Action**: Tank is at halfway point, continue filling with caution
 
-### ⚪ Normal Operation
-- **Trigger**: Tank has adequate space (distance > 15cm) and no water contamination
-- **Indicators**: All LEDs OFF
-- **Action**: Safe to continue filling
 
 ### System Logic Summary
 ```
