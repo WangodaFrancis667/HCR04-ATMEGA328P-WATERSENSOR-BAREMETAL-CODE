@@ -9,7 +9,7 @@
 
 #define RED_LED         PE4     // Contamination indicator
 #define YELLOW_LED      PE5     // Half-full indicator  
-#define BLUE_LED       PG5     // Overflow warning
+#define GREEN_LED       PG5     // Overflow warning
 
 #define BUZZER          PE3     // Active-low buzzer
 
@@ -69,11 +69,11 @@ void send_status_packet(uint32_t timestamp, uint16_t percent, uint16_t water_adc
 int main(void){
     // LEDs and Buzzer as outputs (Active-LOW, so set HIGH = OFF)
     DDRE |= (1 << RED_LED) | (1 << YELLOW_LED) | (1 << BUZZER);
-    DDRG |= (1 << BLUE_LED);
+    DDRG |= (1 << GREEN_LED);
 
     // Set ALL output pins HIGH (Logic 1) for initial OFF state (Active-Low)
     PORTE |= (1 << RED_LED) | (1 << YELLOW_LED) | (1 << BUZZER); 
-    PORTG |= (1 << BLUE_LED); 
+    PORTG |= (1 << GREEN_LED); 
     
     // Ultrasonic pins
     DDRH |= (1 << TRIG_PIN);   
@@ -243,7 +243,7 @@ uint16_t read_water_conductivity(void){
 void set_leds(uint8_t red, uint8_t yellow, uint8_t green){
     if(!red) PORTE &= ~(1 << RED_LED);    else PORTE |= (1 << RED_LED);
     if(!yellow) PORTE &= ~(1 << YELLOW_LED); else PORTE |= (1 << YELLOW_LED);
-    if(!green)  PORTG &= ~(1 << BLUE_LED);  else PORTG |= (1 << BLUE_LED);
+    if(!green)  PORTG &= ~(1 << GREEN_LED);  else PORTG |= (1 << GREEN_LED);
 }
 
 void set_buzzer(uint8_t on){
